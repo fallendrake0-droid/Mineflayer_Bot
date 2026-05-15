@@ -7,6 +7,7 @@
  */
 import type { BotCommandRequestCommand } from './botCommandRequestCommand';
 import type { BotCommandRequestResource } from './botCommandRequestResource';
+import type { BotCommandRequestTreeType } from './botCommandRequestTreeType';
 
 export interface BotCommandRequest {
   command: BotCommandRequestCommand;
@@ -14,4 +15,6 @@ export interface BotCommandRequest {
   target?: string;
   /** Resource type (for mine command) */
   resource?: BotCommandRequestResource;
+  /** Tree type to chop (for chopTree command, defaults to any) */
+  treeType?: BotCommandRequestTreeType;
 }

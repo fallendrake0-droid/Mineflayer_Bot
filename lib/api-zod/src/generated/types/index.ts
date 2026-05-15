@@ -9,6 +9,7 @@
 export * from './botCommandRequest';
 export * from './botCommandRequestCommand';
 export * from './botCommandRequestResource';
+export * from './botCommandRequestTreeType';
 export * from './botConnectRequest';
 export * from './botInventoryResponse';
 export * from './botLogsResponse';

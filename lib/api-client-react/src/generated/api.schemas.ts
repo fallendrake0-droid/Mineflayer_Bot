@@ -52,6 +52,7 @@ export const BotCommandRequestCommand = {
   hit: 'hit',
   pullLever: 'pullLever',
   hitPlayer: 'hitPlayer',
+  chopTree: 'chopTree',
 } as const;
 
 /**
@@ -69,12 +70,32 @@ export const BotCommandRequestResource = {
   stone: 'stone',
 } as const;
 
+/**
+ * Tree type to chop (for chopTree command, defaults to any)
+ */
+export type BotCommandRequestTreeType = typeof BotCommandRequestTreeType[keyof typeof BotCommandRequestTreeType];
+
+
+export const BotCommandRequestTreeType = {
+  oak: 'oak',
+  birch: 'birch',
+  spruce: 'spruce',
+  jungle: 'jungle',
+  acacia: 'acacia',
+  dark_oak: 'dark_oak',
+  mangrove: 'mangrove',
+  cherry: 'cherry',
+  any: 'any',
+} as const;
+
 export interface BotCommandRequest {
   command: BotCommandRequestCommand;
   /** Target player name or entity type (for follow, hit, hitPlayer) */
   target?: string;
   /** Resource type (for mine command) */
   resource?: BotCommandRequestResource;
+  /** Tree type to chop (for chopTree command, defaults to any) */
+  treeType?: BotCommandRequestTreeType;
 }
 
 export interface CommandResponse {

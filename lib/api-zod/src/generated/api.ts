@@ -91,9 +91,10 @@ export const GetBotStatusResponse = zod.object({
  * @summary Execute a bot command
  */
 export const ExecuteBotCommandBody = zod.object({
-  "command": zod.enum(['follow', 'stop', 'killMobs', 'mine', 'dropItems', 'buildBase', 'climb', 'hit', 'pullLever', 'hitPlayer']),
+  "command": zod.enum(['follow', 'stop', 'killMobs', 'mine', 'dropItems', 'buildBase', 'climb', 'hit', 'pullLever', 'hitPlayer', 'chopTree']),
   "target": zod.string().optional().describe('Target player name or entity type (for follow, hit, hitPlayer)'),
-  "resource": zod.enum(['iron', 'diamond', 'gold', 'redstone', 'lapis', 'stone']).optional().describe('Resource type (for mine command)')
+  "resource": zod.enum(['iron', 'diamond', 'gold', 'redstone', 'lapis', 'stone']).optional().describe('Resource type (for mine command)'),
+  "treeType": zod.enum(['oak', 'birch', 'spruce', 'jungle', 'acacia', 'dark_oak', 'mangrove', 'cherry', 'any']).optional().describe('Tree type to chop (for chopTree command, defaults to any)')
 })
 
 export const ExecuteBotCommandResponse = zod.object({

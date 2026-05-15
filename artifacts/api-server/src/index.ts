@@ -37,6 +37,9 @@ wss.on("connection", (ws) => {
   });
 });
 
+// Register in-game chat commands once bot is connected
+botManager.registerChatCommands();
+
 server.listen(port, (err?: Error) => {
   if (err) {
     logger.error({ err }, "Error listening on port");

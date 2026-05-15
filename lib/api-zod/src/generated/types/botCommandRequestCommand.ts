@@ -20,4 +20,5 @@ export const BotCommandRequestCommand = {
   hit: 'hit',
   pullLever: 'pullLever',
   hitPlayer: 'hitPlayer',
+  chopTree: 'chopTree',
 } as const;

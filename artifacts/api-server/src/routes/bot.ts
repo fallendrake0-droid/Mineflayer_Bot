@@ -45,7 +45,7 @@ router.post("/bot/command", async (req, res) => {
     return;
   }
 
-  const { command, target, resource } = parse.data;
+  const { command, target, resource, treeType } = parse.data;
 
   try {
     switch (command) {
@@ -103,6 +103,10 @@ router.post("/bot/command", async (req, res) => {
           return;
         }
         await botManager.hitPlayer(target);
+        break;
+
+      case "chopTree":
+        botManager.chopTree(treeType ?? "any").catch(() => {});
         break;
 
       default:

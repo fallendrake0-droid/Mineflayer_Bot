@@ -228,6 +228,7 @@ components:
             - hit
             - pullLever
             - hitPlayer
+            - chopTree
         target:
           type: string
           description: Target player name or entity type (for follow, hit, hitPlayer)
@@ -241,6 +242,19 @@ components:
             - lapis
             - stone
           description: Resource type (for mine command)
+        treeType:
+          type: string
+          enum:
+            - oak
+            - birch
+            - spruce
+            - jungle
+            - acacia
+            - dark_oak
+            - mangrove
+            - cherry
+            - any
+          description: Tree type to chop (for chopTree command, defaults to any)
       required:
         - command
 
