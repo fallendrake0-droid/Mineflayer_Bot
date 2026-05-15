@@ -1,6 +1,6 @@
-# [Project name]
+# MineControl
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+A full-stack Minecraft Mineflayer bot control dashboard. Connect a bot to any Minecraft server and control it via a sleek, real-time web interface.
 
 ## Run & Operate
 
@@ -8,38 +8,43 @@ _Replace the heading above with the project's name, and this line with one sente
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- Required env: none for dev (no DB used)
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
+- API: Express 5 + WebSocket (ws) server at `/ws`
+- Bot: Mineflayer + mineflayer-pathfinder (externalized in esbuild)
+- Frontend: React + Vite + shadcn/ui + Tailwind
 - Build: esbuild (CJS bundle)
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/api-spec/openapi.yaml` — API contract source of truth
+- `artifacts/api-server/src/lib/bot.ts` — BotManager singleton (all bot logic)
+- `artifacts/api-server/src/routes/bot.ts` — REST route handlers
+- `artifacts/bot-dashboard/src/` — React frontend
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- mineflayer, mineflayer-pathfinder, minecraft-data, and prismarine-* are all externalized in esbuild (not bundled) because they use dynamic requires and path traversal to load data files at runtime.
+- WebSocket at `/ws` is added to the API server's `artifact.toml` paths array so the proxy forwards WS connections.
+- The `globalThis.require` banner in build.mjs enables `require()` calls at runtime in the ESM bundle — used by mineflayer-pathfinder at runtime.
+- No database — bot state is in-memory only (BotManager singleton).
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+- Connect a bot to any Minecraft Java Edition server (1.12 – 1.20.x)
+- Real-time status: health, food, XYZ position, online players
+- Live activity log via WebSocket streaming
+- 10 bot commands: follow, stop, kill mobs, mine resources, drop items, build base, climb, hit entity, pull lever, hit player
+
+## Gotchas
+
+- After any OpenAPI spec change, run `pnpm --filter @workspace/api-spec run codegen` before using updated types
+- mineflayer-pathfinder must be imported as default (`import pkg from "mineflayer-pathfinder"`) then destructured — named exports don't work with ESM interop
+- The bot runs in the API server process — only one bot instance at a time
 
 ## User preferences
 
 _Populate as you build — explicit user instructions worth remembering across sessions._
-
-## Gotchas
-
-_Populate as you build — sharp edges, "always run X before Y" rules._
-
-## Pointers
-
-- See the `pnpm-workspace` skill for workspace structure, TypeScript setup, and package details

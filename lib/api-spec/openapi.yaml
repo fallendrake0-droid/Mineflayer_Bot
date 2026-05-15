@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: bot
+    description: Minecraft bot operations
 paths:
   /healthz:
     get:
@@ -24,6 +26,121 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /bot/connect:
+    post:
+      operationId: connectBot
+      tags: [bot]
+      summary: Connect bot to a Minecraft server
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotConnectRequest"
+      responses:
+        "200":
+          description: Bot connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+        "400":
+          description: Invalid request or already connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/disconnect:
+    post:
+      operationId: disconnectBot
+      tags: [bot]
+      summary: Disconnect the bot
+      responses:
+        "200":
+          description: Bot disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+        "400":
+          description: Bot not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/status:
+    get:
+      operationId: getBotStatus
+      tags: [bot]
+      summary: Get current bot status
+      responses:
+        "200":
+          description: Current bot status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotStatus"
+
+  /bot/command:
+    post:
+      operationId: executeBotCommand
+      tags: [bot]
+      summary: Execute a bot command
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotCommandRequest"
+      responses:
+        "200":
+          description: Command accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+        "400":
+          description: Bot not connected or invalid command
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/logs:
+    get:
+      operationId: getBotLogs
+      tags: [bot]
+      summary: Get recent bot activity logs
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 100
+      responses:
+        "200":
+          description: Recent bot logs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotLogsResponse"
+
+  /bot/inventory:
+    get:
+      operationId: getBotInventory
+      tags: [bot]
+      summary: Get current bot inventory
+      responses:
+        "200":
+          description: Bot inventory
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotInventoryResponse"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +151,173 @@ components:
       required:
         - status
 
+    BotConnectRequest:
+      type: object
+      properties:
+        host:
+          type: string
+          description: Minecraft server hostname or IP
+        port:
+          type: integer
+          description: Server port (default 25565)
+          default: 25565
+        username:
+          type: string
+          description: Bot username
+        version:
+          type: string
+          description: Minecraft version (e.g. "1.20.1")
+          default: "1.20.1"
+      required:
+        - host
+        - username
+
+    BotStatus:
+      type: object
+      properties:
+        connected:
+          type: boolean
+        username:
+          type: string
+        host:
+          type: string
+        port:
+          type: integer
+        currentTask:
+          type: string
+        health:
+          type: number
+        food:
+          type: number
+        position:
+          $ref: "#/components/schemas/Position"
+        players:
+          type: array
+          items:
+            type: string
+      required:
+        - connected
+
+    Position:
+      type: object
+      properties:
+        x:
+          type: number
+        y:
+          type: number
+        z:
+          type: number
+      required:
+        - x
+        - y
+        - z
+
+    BotCommandRequest:
+      type: object
+      properties:
+        command:
+          type: string
+          enum:
+            - follow
+            - stop
+            - killMobs
+            - mine
+            - dropItems
+            - buildBase
+            - climb
+            - hit
+            - pullLever
+            - hitPlayer
+        target:
+          type: string
+          description: Target player name or entity type (for follow, hit, hitPlayer)
+        resource:
+          type: string
+          enum:
+            - iron
+            - diamond
+            - gold
+            - redstone
+            - lapis
+            - stone
+          description: Resource type (for mine command)
+      required:
+        - command
+
+    CommandResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+        message:
+          type: string
+      required:
+        - success
+        - message
+
+    BotLogsResponse:
+      type: object
+      properties:
+        logs:
+          type: array
+          items:
+            $ref: "#/components/schemas/LogEntry"
+      required:
+        - logs
+
+    LogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+        level:
+          type: string
+          enum:
+            - info
+            - warn
+            - error
+            - success
+        message:
+          type: string
+      required:
+        - timestamp
+        - level
+        - message
+
+    BotInventoryResponse:
+      type: object
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryItem"
+      required:
+        - items
+
+    InventoryItem:
+      type: object
+      properties:
+        name:
+          type: string
+        count:
+          type: integer
+        slot:
+          type: integer
+        isArmor:
+          type: boolean
+        isTool:
+          type: boolean
+      required:
+        - name
+        - count
+        - slot
+        - isArmor
+        - isTool
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error

@@ -1,0 +1,45 @@
+Create a Minecraft Mineflayer bot capable of performing the following commands efficiently and reliably:
+
+1. Follow a specified player.
+2. Stop following the player.
+3. Kill nearby mobs.
+4. Mine specified resources: iron, diamond, gold, redstone, lapis, and stone, while simultaneously killing nearby mobs.
+5. Drop all obtained items except for armor and tools back to the player.
+6. Build a 10x10 base.
+7. Climb upwards on command.
+8. Hit a specified target entity.
+9. Pull a lever or switch.
+10. Hit the player on command.
+
+Requirements:
+- Provide clear, step-by-step explanations for implementing each command.
+- Include well-commented example code snippets using the Mineflayer API and relevant libraries.
+- Address common physics-related errors that may arise during bot operations and provide practical solutions or debugging tips.
+- Focus on clarity and maintainability in your code examples, explaining key decisions.
+
+# Steps
+
+- Initialize the Mineflayer bot with proper event listeners.
+- Implement player-following logic using pathfinding.
+- Devise logic to stop following.
+- Detect and attack nearby mobs efficiently.
+- Develop mining routines targeting specified resource blocks, while watching for mobs to kill concurrently.
+- Implement inventory management to drop unwanted items while keeping armor and tools.
+- Create a building routine for a 10x10 base structure.
+- Add climbing logic responding to commands.
+- Implement hitting of specified entities, including the player.
+- Include interaction logic for pulling levers or switches.
+- Provide troubleshooting advice on physics-related errors, including common causes and fixes.
+
+# Output Format
+
+- Detailed, well-structured text explanation for each command and its implementation.
+- Annotated code examples in JavaScript suitable for Node.js environment using Mineflayer.
+- List of common physics-related issues with explanations and bullet-point fixes.
+
+# Notes
+
+- Assume the user has foundational programming knowledge but is new to Mineflayer.
+- Use clear naming conventions and descriptive comments in code.
+- Ensure code examples are modular to show how each command integrates into bot behavior.
+
