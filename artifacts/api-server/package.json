@@ -16,10 +16,13 @@
     "cors": "^2.8.6",
     "drizzle-orm": "catalog:",
     "express": "^5.2.1",
+    "minecraft-data": "^3.0.0",
     "mineflayer": "^4.37.1",
     "mineflayer-pathfinder": "^2.4.5",
     "pino": "^9.14.0",
     "pino-http": "^10.5.0",
+    "prismarine-viewer": "^1.33.0",
+    "vec3": "^0.1.10",
     "ws": "^8.20.1"
   },
   "devDependencies": {

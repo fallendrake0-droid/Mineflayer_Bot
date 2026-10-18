@@ -26,6 +26,16 @@ if (!basePath) {
   );
 }
 
+// In local dev the dashboard and API run on different ports; proxy API, WS
+// and the live-view through Vite so the browser only ever talks same-origin.
+// (Hosted setups that already route these paths are unaffected in build.)
+const apiTarget = `http://127.0.0.1:${process.env.API_PORT ?? "5000"}`;
+const devProxy = {
+  "/api": { target: apiTarget, changeOrigin: true },
+  "/ws": { target: apiTarget, ws: true },
+  "/viewer": { target: apiTarget, ws: true, changeOrigin: true },
+};
+
 export default defineConfig({
   base: basePath,
   plugins: [
@@ -63,6 +73,7 @@ export default defineConfig({
     strictPort: true,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: devProxy,
     fs: {
       strict: true,
     },
@@ -71,5 +82,6 @@ export default defineConfig({
     port,
     host: "0.0.0.0",
     allowedHosts: true,
+    proxy: devProxy,
   },
 });

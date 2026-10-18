@@ -1,0 +1,36 @@
+diff --git a/viewer/lib/atlas.js b/viewer/lib/atlas.js
+index d36ccca30bc5093192c531a5a9303223b5c4dc3e..9c5dab55c4b3749070145cc406dfa72a9e7f69ab 100644
+--- a/viewer/lib/atlas.js
++++ b/viewer/lib/atlas.js
+@@ -1,5 +1,10 @@
+ const fs = require('fs')
+-const { Canvas, Image } = require('canvas')
++// 'canvas' is an optional (dev) dependency only used outside the browser
++// bundle; guard the require so the Node web server can load without it.
++let Canvas, Image
++try {
++  ;({ Canvas, Image } = require('canvas'))
++} catch { /* texture atlas generation unavailable in this environment */ }
+ const path = require('path')
+ 
+ function nextPowerOfTwo (n) {
+diff --git a/viewer/lib/entities.js b/viewer/lib/entities.js
+index 459e3f3624657cc8d43c51706e66f5386b4fb94f..ab2124a664a94a8914b64d59be117543955da16c 100644
+--- a/viewer/lib/entities.js
++++ b/viewer/lib/entities.js
+@@ -4,7 +4,14 @@ const TWEEN = require('@tweenjs/tween.js')
+ const Entity = require('./entity/Entity')
+ const { dispose3 } = require('./dispose')
+ 
+-const { createCanvas } = require('canvas')
++// 'canvas' is an optional (dev) dependency only needed for nametag textures;
++// the web viewer server must still load when it isn't installed.
++let createCanvas
++try {
++  createCanvas = require('canvas').createCanvas
++} catch {
++  createCanvas = () => { throw new Error('canvas package not available') }
++}
+ 
+ function getEntityMesh (entity, scene) {
+   if (entity.name) {

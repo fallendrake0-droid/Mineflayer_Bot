@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
-  version: 0.1.0
-  description: API specification
+  version: 0.2.0
+  description: MineControl API — control a Mineflayer Minecraft bot
 servers:
   - url: /api
     description: Base API path
@@ -109,6 +109,67 @@ paths:
               schema:
                 $ref: "#/components/schemas/ErrorResponse"
 
+  /bot/control:
+    post:
+      operationId: sendBotControl
+      tags: [bot]
+      summary: Set manual movement / look controls (remote-control pad)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotControlRequest"
+      responses:
+        "200":
+          description: Controls applied
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+        "400":
+          description: Bot not connected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/settings:
+    get:
+      operationId: getBotSettings
+      tags: [bot]
+      summary: Get bot automation settings
+      responses:
+        "200":
+          description: Current settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotSettings"
+    put:
+      operationId: updateBotSettings
+      tags: [bot]
+      summary: Update bot automation settings (partial)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BotSettings"
+      responses:
+        "200":
+          description: Updated settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BotSettings"
+        "400":
+          description: Invalid settings
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /bot/logs:
     get:
       operationId: getBotLogs
@@ -127,6 +188,17 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BotLogsResponse"
+    delete:
+      operationId: clearBotLogs
+      tags: [bot]
+      summary: Clear all bot activity logs
+      responses:
+        "200":
+          description: Logs cleared
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
 
   /bot/inventory:
     get:
@@ -163,11 +235,14 @@ components:
           default: 25565
         username:
           type: string
-          description: Bot username
+          description: Bot username (offline-mode servers)
         version:
           type: string
-          description: Minecraft version (e.g. "1.20.1")
-          default: "1.20.1"
+          description: 'Minecraft version (e.g. "1.20.1") or "auto" to auto-detect'
+          default: "auto"
+        owner:
+          type: string
+          description: Your in-game username — whitelisted to run !chat commands
       required:
         - host
         - username
@@ -177,26 +252,107 @@ components:
       properties:
         connected:
           type: boolean
+        connectionState:
+          type: string
+          enum:
+            - disconnected
+            - connecting
+            - connected
+            - reconnecting
         username:
           type: string
         host:
           type: string
         port:
           type: integer
+        version:
+          type: string
         currentTask:
+          type: string
+        taskDetail:
           type: string
         health:
           type: number
         food:
           type: number
+        foodSaturation:
+          type: number
+        xpLevel:
+          type: integer
+        xpProgress:
+          type: number
+          description: Progress to next XP level (0–1)
+        ping:
+          type: integer
         position:
           $ref: "#/components/schemas/Position"
+        dimension:
+          type: string
+        gameMode:
+          type: string
+        timeOfDay:
+          type: string
+          description: day | sunset | night | sunrise
+        isRaining:
+          type: boolean
+        heldItem:
+          type: string
+        facing:
+          type: string
+          description: Cardinal direction the bot is facing (N, NE, E, …)
         players:
           type: array
           items:
-            type: string
+            $ref: "#/components/schemas/PlayerInfo"
+        uptimeSeconds:
+          type: integer
+        reconnectAttempts:
+          type: integer
+        viewerEnabled:
+          type: boolean
+        viewerPath:
+          type: string
+        viewerPort:
+          type: integer
+        stats:
+          $ref: "#/components/schemas/BotStats"
       required:
         - connected
+
+    PlayerInfo:
+      type: object
+      properties:
+        username:
+          type: string
+        ping:
+          type: integer
+        distance:
+          type: number
+          description: Distance in blocks, absent when the player entity is not loaded
+      required:
+        - username
+
+    BotStats:
+      type: object
+      properties:
+        blocksMined:
+          type: integer
+        logsChopped:
+          type: integer
+        treesChopped:
+          type: integer
+        mobsKilled:
+          type: integer
+        itemsCollected:
+          type: integer
+        deaths:
+          type: integer
+        distanceWalked:
+          type: number
+          description: Metres travelled this session
+        sessionStartedAt:
+          type: string
+          description: ISO timestamp of when the current session started
 
     Position:
       type: object
@@ -229,18 +385,34 @@ components:
             - pullLever
             - hitPlayer
             - chopTree
+            - goto
+            - chat
+            - eat
+            - sleep
+            - guard
+            - collectItems
+            - depositItems
+            - wander
+            - equipItem
+            - useItem
+            - tossItem
         target:
           type: string
-          description: Target player name or entity type (for follow, hit, hitPlayer)
+          description: Target player name or entity name (follow, hit, hitPlayer, dropItems)
         resource:
           type: string
           enum:
+            - coal
             - iron
-            - diamond
+            - copper
             - gold
             - redstone
             - lapis
+            - diamond
+            - emerald
             - stone
+            - obsidian
+            - ancient_debris
           description: Resource type (for mine command)
         treeType:
           type: string
@@ -255,8 +427,95 @@ components:
             - cherry
             - any
           description: Tree type to chop (for chopTree command, defaults to any)
+        x:
+          type: number
+          description: X coordinate (for goto)
+        y:
+          type: number
+          description: Y coordinate (for goto)
+        z:
+          type: number
+          description: Z coordinate (for goto)
+        message:
+          type: string
+          description: Chat message or /server command (for chat)
+        slot:
+          type: integer
+          description: Inventory slot (for equipItem, useItem, tossItem)
+        count:
+          type: integer
+          description: Amount — items to mine/toss, or blocks to climb
+        size:
+          type: integer
+          description: Outer size of the shelter in blocks (for buildBase, 3–15)
       required:
         - command
+
+    BotControlRequest:
+      type: object
+      properties:
+        forward:
+          type: boolean
+        back:
+          type: boolean
+        left:
+          type: boolean
+        right:
+          type: boolean
+        jump:
+          type: boolean
+        sprint:
+          type: boolean
+        sneak:
+          type: boolean
+        yawDelta:
+          type: number
+          description: Relative yaw change in radians (positive = turn left)
+        pitchDelta:
+          type: number
+          description: Relative pitch change in radians (positive = look down)
+
+    BotSettings:
+      type: object
+      properties:
+        autoEat:
+          type: boolean
+          description: Automatically eat when hungry
+        autoEatThreshold:
+          type: integer
+          description: Eat when food level is at or below this value (0–20)
+        autoEquipArmor:
+          type: boolean
+          description: Automatically wear the best armor in inventory
+        autoReconnect:
+          type: boolean
+          description: Reconnect automatically after an unexpected disconnect
+        maxReconnectAttempts:
+          type: integer
+          description: Max auto-reconnect attempts (0 = unlimited)
+        antiAfk:
+          type: boolean
+          description: Occasionally look around / hop while idle so servers don't kick for AFK
+        autoDefend:
+          type: boolean
+          description: Fight back when attacked while idle
+        autoCollectDrops:
+          type: boolean
+          description: Walk over and pick up drops after mining/chopping/combat
+        chatCommandsEnabled:
+          type: boolean
+          description: Allow !commands from in-game chat
+        chatCommandOwners:
+          type: array
+          items:
+            type: string
+          description: Usernames allowed to use chat commands (empty = everyone)
+        viewerEnabled:
+          type: boolean
+          description: Start the prismarine-viewer live view when connected
+        viewerFirstPerson:
+          type: boolean
+          description: First-person camera (true) or orbit camera (false)
 
     CommandResponse:
       type: object
@@ -293,6 +552,14 @@ components:
             - success
         message:
           type: string
+        category:
+          type: string
+          enum:
+            - system
+            - chat
+            - combat
+            - task
+            - connection
       required:
         - timestamp
         - level
@@ -305,6 +572,12 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/InventoryItem"
+        selectedSlot:
+          type: integer
+          description: Currently selected hotbar slot (36–44)
+        heldItem:
+          type: string
+          description: Name of the item currently held
       required:
         - items
 
@@ -312,6 +585,8 @@ components:
       type: object
       properties:
         name:
+          type: string
+        displayName:
           type: string
         count:
           type: integer
@@ -321,12 +596,28 @@ components:
           type: boolean
         isTool:
           type: boolean
+        isFood:
+          type: boolean
+        category:
+          type: string
+          enum:
+            - armor
+            - weapon
+            - tool
+            - food
+            - block
+            - other
+        durability:
+          type: number
+          description: Remaining durability 0–1, absent when not damageable
       required:
         - name
         - count
         - slot
         - isArmor
         - isTool
+        - isFood
+        - category
 
     ErrorResponse:
       type: object
