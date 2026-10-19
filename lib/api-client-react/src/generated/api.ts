@@ -20,6 +20,13 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  AiAutopilotRequest,
+  AiConfigUpdate,
+  AiGoalRequest,
+  AiPublicConfig,
+  AiSkill,
+  AiSkillListResponse,
+  AiStatus,
   BotCommandRequest,
   BotConnectRequest,
   BotControlRequest,
@@ -861,4 +868,665 @@ export function useGetBotInventory<TData = Awaited<ReturnType<typeof getBotInven
 
 
 
+
+export const getAiGoalUrl = () => {
+
+
+
+
+  return `/api/bot/ai/goal`
+}
+
+/**
+ * @summary Give the AI brain a natural-language goal (starts asynchronously)
+ */
+export const aiGoal = async (aiGoalRequest: AiGoalRequest, options?: RequestInit): Promise<CommandResponse> => {
+
+  return customFetch<CommandResponse>(getAiGoalUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      aiGoalRequest,)
+  }
+);}
+
+
+
+
+export const getAiGoalMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiGoal>>, TError,{data: BodyType<AiGoalRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof aiGoal>>, TError,{data: BodyType<AiGoalRequest>}, TContext> => {
+
+const mutationKey = ['aiGoal'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof aiGoal>>, {data: BodyType<AiGoalRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  aiGoal(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AiGoalMutationResult = NonNullable<Awaited<ReturnType<typeof aiGoal>>>
+    export type AiGoalMutationBody = BodyType<AiGoalRequest>
+    export type AiGoalMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Give the AI brain a natural-language goal (starts asynchronously)
+ */
+export const useAiGoal = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiGoal>>, TError,{data: BodyType<AiGoalRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof aiGoal>>,
+        TError,
+        {data: BodyType<AiGoalRequest>},
+        TContext
+      > => {
+      return useMutation(getAiGoalMutationOptions(options));
+    }
+
+export const getAiStopUrl = () => {
+
+
+
+
+  return `/api/bot/ai/stop`
+}
+
+/**
+ * @summary Stop the current AI goal and autopilot
+ */
+export const aiStop = async ( options?: RequestInit): Promise<CommandResponse> => {
+
+  return customFetch<CommandResponse>(getAiStopUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getAiStopMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiStop>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof aiStop>>, TError,void, TContext> => {
+
+const mutationKey = ['aiStop'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof aiStop>>, void> = () => {
+
+
+          return  aiStop(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AiStopMutationResult = NonNullable<Awaited<ReturnType<typeof aiStop>>>
+
+    export type AiStopMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Stop the current AI goal and autopilot
+ */
+export const useAiStop = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof aiStop>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof aiStop>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getAiStopMutationOptions(options));
+    }
+
+export const getSetAiAutopilotUrl = () => {
+
+
+
+
+  return `/api/bot/ai/autopilot`
+}
+
+/**
+ * @summary Turn AI autopilot (self-chosen goals) on or off
+ */
+export const setAiAutopilot = async (aiAutopilotRequest: AiAutopilotRequest, options?: RequestInit): Promise<AiStatus> => {
+
+  return customFetch<AiStatus>(getSetAiAutopilotUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      aiAutopilotRequest,)
+  }
+);}
+
+
+
+
+export const getSetAiAutopilotMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setAiAutopilot>>, TError,{data: BodyType<AiAutopilotRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof setAiAutopilot>>, TError,{data: BodyType<AiAutopilotRequest>}, TContext> => {
+
+const mutationKey = ['setAiAutopilot'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setAiAutopilot>>, {data: BodyType<AiAutopilotRequest>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  setAiAutopilot(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetAiAutopilotMutationResult = NonNullable<Awaited<ReturnType<typeof setAiAutopilot>>>
+    export type SetAiAutopilotMutationBody = BodyType<AiAutopilotRequest>
+    export type SetAiAutopilotMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Turn AI autopilot (self-chosen goals) on or off
+ */
+export const useSetAiAutopilot = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setAiAutopilot>>, TError,{data: BodyType<AiAutopilotRequest>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof setAiAutopilot>>,
+        TError,
+        {data: BodyType<AiAutopilotRequest>},
+        TContext
+      > => {
+      return useMutation(getSetAiAutopilotMutationOptions(options));
+    }
+
+export const getGetAiStatusUrl = () => {
+
+
+
+
+  return `/api/bot/ai/status`
+}
+
+/**
+ * @summary AI brain status (config, current goal, usage)
+ */
+export const getAiStatus = async ( options?: RequestInit): Promise<AiStatus> => {
+
+  return customFetch<AiStatus>(getGetAiStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiStatusQueryKey = () => {
+    return [
+    `/api/bot/ai/status`
+    ] as const;
+    }
+
+
+export const getGetAiStatusQueryOptions = <TData = Awaited<ReturnType<typeof getAiStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiStatus>>> = ({ signal }) => getAiStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getAiStatus>>>
+export type GetAiStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary AI brain status (config, current goal, usage)
+ */
+
+export function useGetAiStatus<TData = Awaited<ReturnType<typeof getAiStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getListAiSkillsUrl = () => {
+
+
+
+
+  return `/api/bot/ai/skills`
+}
+
+/**
+ * @summary List skills the AI has written for itself
+ */
+export const listAiSkills = async ( options?: RequestInit): Promise<AiSkillListResponse> => {
+
+  return customFetch<AiSkillListResponse>(getListAiSkillsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAiSkillsQueryKey = () => {
+    return [
+    `/api/bot/ai/skills`
+    ] as const;
+    }
+
+
+export const getListAiSkillsQueryOptions = <TData = Awaited<ReturnType<typeof listAiSkills>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiSkills>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAiSkillsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAiSkills>>> = ({ signal }) => listAiSkills({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAiSkills>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAiSkillsQueryResult = NonNullable<Awaited<ReturnType<typeof listAiSkills>>>
+export type ListAiSkillsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List skills the AI has written for itself
+ */
+
+export function useListAiSkills<TData = Awaited<ReturnType<typeof listAiSkills>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAiSkills>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAiSkillsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getGetAiSkillUrl = (name: string,) => {
+
+
+
+
+  return `/api/bot/ai/skills/${name}`
+}
+
+/**
+ * @summary Get one AI skill including its source code
+ */
+export const getAiSkill = async (name: string, options?: RequestInit): Promise<AiSkill> => {
+
+  return customFetch<AiSkill>(getGetAiSkillUrl(name),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiSkillQueryKey = (name: string,) => {
+    return [
+    `/api/bot/ai/skills/${name}`
+    ] as const;
+    }
+
+
+export const getGetAiSkillQueryOptions = <TData = Awaited<ReturnType<typeof getAiSkill>>, TError = ErrorType<ErrorResponse>>(name: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiSkill>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiSkillQueryKey(name);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiSkill>>> = ({ signal }) => getAiSkill(name, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(name), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiSkill>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiSkillQueryResult = NonNullable<Awaited<ReturnType<typeof getAiSkill>>>
+export type GetAiSkillQueryError = ErrorType<ErrorResponse>
+
+
+/**
+ * @summary Get one AI skill including its source code
+ */
+
+export function useGetAiSkill<TData = Awaited<ReturnType<typeof getAiSkill>>, TError = ErrorType<ErrorResponse>>(
+ name: string, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiSkill>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiSkillQueryOptions(name,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getDeleteAiSkillUrl = (name: string,) => {
+
+
+
+
+  return `/api/bot/ai/skills/${name}`
+}
+
+/**
+ * @summary Delete an AI skill
+ */
+export const deleteAiSkill = async (name: string, options?: RequestInit): Promise<CommandResponse> => {
+
+  return customFetch<CommandResponse>(getDeleteAiSkillUrl(name),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+export const getDeleteAiSkillMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAiSkill>>, TError,{name: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteAiSkill>>, TError,{name: string}, TContext> => {
+
+const mutationKey = ['deleteAiSkill'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteAiSkill>>, {name: string}> = (props) => {
+          const {name} = props ?? {};
+
+          return  deleteAiSkill(name,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteAiSkillMutationResult = NonNullable<Awaited<ReturnType<typeof deleteAiSkill>>>
+
+    export type DeleteAiSkillMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Delete an AI skill
+ */
+export const useDeleteAiSkill = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteAiSkill>>, TError,{name: string}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteAiSkill>>,
+        TError,
+        {name: string},
+        TContext
+      > => {
+      return useMutation(getDeleteAiSkillMutationOptions(options));
+    }
+
+export const getGetAiConfigUrl = () => {
+
+
+
+
+  return `/api/bot/ai/config`
+}
+
+/**
+ * @summary Get public AI provider config (never returns the API key)
+ */
+export const getAiConfig = async ( options?: RequestInit): Promise<AiPublicConfig> => {
+
+  return customFetch<AiPublicConfig>(getGetAiConfigUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetAiConfigQueryKey = () => {
+    return [
+    `/api/bot/ai/config`
+    ] as const;
+    }
+
+
+export const getGetAiConfigQueryOptions = <TData = Awaited<ReturnType<typeof getAiConfig>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetAiConfigQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getAiConfig>>> = ({ signal }) => getAiConfig({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getAiConfig>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetAiConfigQueryResult = NonNullable<Awaited<ReturnType<typeof getAiConfig>>>
+export type GetAiConfigQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get public AI provider config (never returns the API key)
+ */
+
+export function useGetAiConfig<TData = Awaited<ReturnType<typeof getAiConfig>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getAiConfig>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetAiConfigQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return { ...query, queryKey: queryOptions.queryKey };
+}
+
+
+
+
+
+
+
+export const getUpdateAiConfigUrl = () => {
+
+
+
+
+  return `/api/bot/ai/config`
+}
+
+/**
+ * @summary Update AI provider config (API key is write-only)
+ */
+export const updateAiConfig = async (aiConfigUpdate: AiConfigUpdate, options?: RequestInit): Promise<AiPublicConfig> => {
+
+  return customFetch<AiPublicConfig>(getUpdateAiConfigUrl(),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(
+      aiConfigUpdate,)
+  }
+);}
+
+
+
+
+export const getUpdateAiConfigMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiConfig>>, TError,{data: BodyType<AiConfigUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateAiConfig>>, TError,{data: BodyType<AiConfigUpdate>}, TContext> => {
+
+const mutationKey = ['updateAiConfig'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateAiConfig>>, {data: BodyType<AiConfigUpdate>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  updateAiConfig(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateAiConfigMutationResult = NonNullable<Awaited<ReturnType<typeof updateAiConfig>>>
+    export type UpdateAiConfigMutationBody = BodyType<AiConfigUpdate>
+    export type UpdateAiConfigMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update AI provider config (API key is write-only)
+ */
+export const useUpdateAiConfig = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateAiConfig>>, TError,{data: BodyType<AiConfigUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateAiConfig>>,
+        TError,
+        {data: BodyType<AiConfigUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateAiConfigMutationOptions(options));
+    }
 

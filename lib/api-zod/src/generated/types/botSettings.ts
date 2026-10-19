@@ -31,4 +31,8 @@ export interface BotSettings {
   viewerEnabled?: boolean;
   /** First-person camera (true) or orbit camera (false) */
   viewerFirstPerson?: boolean;
+  /** Enable the LLM-powered AI brain (goals, autopilot, self-written skills) */
+  aiEnabled?: boolean;
+  /** Let owners talk to the AI brain with plain in-game chat (not just !ai) */
+  aiChatEnabled?: boolean;
 }

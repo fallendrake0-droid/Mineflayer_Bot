@@ -6,6 +6,9 @@ import {
   SendBotControlBody,
   UpdateBotSettingsBody,
   GetBotLogsQueryParams,
+  AiGoalBody,
+  SetAiAutopilotBody,
+  UpdateAiConfigBody,
 } from "@workspace/api-zod";
 
 const router = Router();
@@ -247,6 +250,81 @@ router.delete("/bot/logs", (_req, res) => {
 
 router.get("/bot/inventory", (_req, res) => {
   res.json(botManager.getInventoryResponse());
+});
+
+// ---------------------------------------------------------------------------
+// AI brain
+// ---------------------------------------------------------------------------
+
+router.post("/bot/ai/goal", async (req, res) => {
+  const parse = AiGoalBody.safeParse(req.body);
+  if (!parse.success) {
+    res.status(400).json({ error: parse.error.message });
+    return;
+  }
+  try {
+    await startLongTask(botManager.aiGoal(parse.data.goal));
+    res.json({ success: true, message: "AI goal started" });
+  } catch (err) {
+    badRequest(res, err);
+  }
+});
+
+router.post("/bot/ai/stop", (_req, res) => {
+  botManager.aiStop();
+  res.json({ success: true, message: "AI stopped" });
+});
+
+router.post("/bot/ai/autopilot", (req, res) => {
+  const parse = SetAiAutopilotBody.safeParse(req.body);
+  if (!parse.success) {
+    res.status(400).json({ error: parse.error.message });
+    return;
+  }
+  try {
+    botManager.setAutopilot(parse.data.enabled);
+    res.json(botManager.getAiStatus());
+  } catch (err) {
+    badRequest(res, err);
+  }
+});
+
+router.get("/bot/ai/status", (_req, res) => {
+  res.json(botManager.getAiStatus());
+});
+
+router.get("/bot/ai/skills", (_req, res) => {
+  res.json({ skills: botManager.listAiSkills() });
+});
+
+router.get("/bot/ai/skills/:name", (req, res) => {
+  const skill = botManager.getAiSkill(req.params.name);
+  if (!skill) {
+    res.status(404).json({ error: `No AI skill named "${req.params.name}"` });
+    return;
+  }
+  res.json(skill);
+});
+
+router.delete("/bot/ai/skills/:name", (req, res) => {
+  if (!botManager.deleteAiSkill(req.params.name)) {
+    res.status(404).json({ error: `No AI skill named "${req.params.name}"` });
+    return;
+  }
+  res.json({ success: true, message: `AI skill "${req.params.name}" deleted` });
+});
+
+router.get("/bot/ai/config", (_req, res) => {
+  res.json(botManager.getAiPublicConfig());
+});
+
+router.put("/bot/ai/config", (req, res) => {
+  const parse = UpdateAiConfigBody.safeParse(req.body);
+  if (!parse.success) {
+    res.status(400).json({ error: parse.error.message });
+    return;
+  }
+  res.json(botManager.setAiConfig(parse.data));
 });
 
 export default router;

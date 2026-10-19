@@ -40,6 +40,10 @@ self-defense, auto-reconnect) and in-game chat commands.
   armor, auto-defend, auto-collect drops, anti-AFK, and **auto-reconnect
   with exponential backoff** after kicks/drops.
 - **Chat commands** with an owner whitelist (see below).
+- **AI brain (optional LLM)** — give goals in plain English ("mine 10 iron
+  and bring it to me"), let it play on **autopilot** like a real player, and
+  watch it **write its own JavaScript skills** (sandboxed, saved to a
+  library) for tasks beyond its built-in commands. See below.
 
 ## Quick start (local)
 
@@ -92,9 +96,53 @@ settings) can command the bot from Minecraft chat:
 | `!climb [n]` | Pillar up n blocks |
 | `!build [size]` | Build a walled shelter with a roof |
 | `!status` / `!inv` | Report vitals / inventory |
+| `!ai <goal>` | Give the AI brain a goal in plain English (needs API key) |
+| `!auto [on\|off]` | Toggle AI autopilot (self-chosen goals) |
 
 If the whitelist is empty, **everyone** can use chat commands — set your
 username in the connect form (stored as a setting) to restrict it.
+
+## AI brain (optional LLM)
+
+MineControl can use a large language model as the bot's brain — the
+["Voyager"](https://voyager.minedojo.org/) pattern:
+
+- **Goals** — type what you want in the dashboard's **AI BRAIN** panel or
+  with `!ai <goal>` in game ("chop 3 oaks, then build a shelter"). The AI
+  plans steps, runs them with the bot's built-in abilities, looks at the
+  results, and replans until the goal is done.
+- **Autopilot** — flip it on and the AI picks its own goals like a real
+  survival player (food, wood, tools, shelter before night…). `!auto`,
+  the panel switch, or STOP turns it off.
+- **Self-written skills** — when built-in commands aren't enough, the AI
+  writes JavaScript skills for itself. They run in a sealed sandbox (bot
+  control only — no files, network, or app access), are screened for
+  dangerous code, and successful ones are saved to a library you can
+  inspect/delete in the panel. The AI reuses and improves them over time.
+
+### Setup
+
+1. Get a free API key: [aistudio.google.com/apikey](https://aistudio.google.com/apikey)
+   → **Create API key** (Google Gemini, no card needed). Any
+   OpenAI-compatible provider works (OpenAI, OpenRouter, local Ollama…).
+2. Paste it into the dashboard's **AI BRAIN** panel (stored server-side in
+   `data/ai-config.json`, never sent back to the browser) — or set env vars
+   instead: `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL`.
+3. Connect the bot and give it a goal!
+
+Settings live in **AUTOMATION**: `AI brain` (master switch) and `AI chat`
+(owners can talk to the AI in plain chat instead of `!ai`).
+
+### Costs & safety
+
+- Each planning step is one API call; cheap/fast models (Gemini Flash,
+  GPT-4o-mini) cost pennies per session. Autopilot keeps calling until
+  stopped — watch usage in the panel.
+- The key lives only in env vars or `data/ai-config.json` on the machine
+  running the API. Never commit it.
+- AI code runs sandboxed with timeouts and a working STOP — but it fully
+  controls the bot in-game, and it *will* make mistakes. Supervise it on
+  servers you care about.
 
 ## Architecture
 

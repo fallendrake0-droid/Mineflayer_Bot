@@ -9,6 +9,7 @@ import { InventoryPanel } from "@/components/InventoryPanel";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { ViewerPanel } from "@/components/ViewerPanel";
 import { StatsStrip } from "@/components/StatsStrip";
+import { AiPanel } from "@/components/AiPanel";
 import { useBot } from "@/lib/bot-context";
 import { useDisconnectBot } from "@workspace/api-client-react";
 import { Button } from "@/components/ui/button";
@@ -100,7 +101,10 @@ export function Home() {
 
         {!isConnected ? (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
-            <ConnectionForm />
+            <div className="flex flex-col gap-5">
+              <ConnectionForm />
+              <AiPanel />
+            </div>
             <LogPanel heightClass="h-[520px]" />
           </div>
         ) : (
@@ -122,6 +126,7 @@ export function Home() {
 
             {/* Right rail: commands + driving */}
             <div className="xl:col-span-3 flex flex-col gap-5">
+              <AiPanel />
               <CommandPanel />
               <ControlPad />
             </div>

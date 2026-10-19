@@ -17,6 +17,8 @@ const TOGGLES: Array<{ key: keyof BotSettings; label: string; hint: string }> = 
   { key: "autoReconnect", label: "Auto-reconnect", hint: "Reconnect after kicks/drops (with backoff)" },
   { key: "antiAfk", label: "Anti-AFK", hint: "Look around & hop while idle" },
   { key: "chatCommandsEnabled", label: "Chat commands", hint: "Allow !commands from in-game chat" },
+  { key: "aiEnabled", label: "AI brain", hint: "LLM goals, autopilot & self-written skills" },
+  { key: "aiChatEnabled", label: "AI chat", hint: "Owners can talk to the AI in plain chat" },
   { key: "viewerEnabled", label: "Live view", hint: "prismarine-viewer 3D view (uses some CPU)" },
   { key: "viewerFirstPerson", label: "First-person camera", hint: "Off = orbit camera in the live view" },
 ];

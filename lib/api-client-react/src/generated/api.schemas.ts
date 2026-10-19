@@ -221,11 +221,87 @@ export interface BotSettings {
   viewerEnabled?: boolean;
   /** First-person camera (true) or orbit camera (false) */
   viewerFirstPerson?: boolean;
+  /** Enable the LLM-powered AI brain (goals, autopilot, self-written skills) */
+  aiEnabled?: boolean;
+  /** Let owners talk to the AI brain with plain in-game chat (not just !ai) */
+  aiChatEnabled?: boolean;
 }
 
 export interface CommandResponse {
   success: boolean;
   message: string;
+}
+
+export interface AiGoalRequest {
+  /** Natural-language goal for the AI brain (e.g. "mine 10 iron and bring it to me") */
+  goal: string;
+}
+
+export interface AiAutopilotRequest {
+  /** Turn AI autopilot (self-chosen goals) on or off */
+  enabled: boolean;
+}
+
+/**
+ * Partial AI provider config. apiKey is write-only (stored server-side, never returned). Empty string clears a value.
+ */
+export interface AiConfigUpdate {
+  apiKey?: string;
+  /** OpenAI-compatible API base URL (default is Google Gemini's) */
+  baseUrl?: string;
+  /** Model name (e.g. gemini-2.5-flash) */
+  model?: string;
+}
+
+export interface AiPublicConfig {
+  /** Whether an API key is configured (the key itself is never returned) */
+  hasKey: boolean;
+  baseUrl: string;
+  model: string;
+}
+
+export interface AiUsage {
+  calls: number;
+  promptTokens: number;
+  completionTokens: number;
+}
+
+export interface AiStatus {
+  configured: boolean;
+  enabled: boolean;
+  chatEnabled: boolean;
+  model: string;
+  baseUrl: string;
+  autopilot: boolean;
+  goalActive: boolean;
+  currentGoal?: string;
+  lastOutcome?: string;
+  usage: AiUsage;
+  skillCount: number;
+}
+
+export interface AiSkillSummary {
+  name: string;
+  description: string;
+  runs: number;
+  successes: number;
+  failures: number;
+  updatedAt: string;
+}
+
+export interface AiSkill {
+  name: string;
+  description: string;
+  code: string;
+  createdAt: string;
+  updatedAt: string;
+  runs: number;
+  successes: number;
+  failures: number;
+}
+
+export interface AiSkillListResponse {
+  skills: AiSkillSummary[];
 }
 
 export type LogEntryLevel = typeof LogEntryLevel[keyof typeof LogEntryLevel];
@@ -247,6 +323,7 @@ export const LogEntryCategory = {
   combat: 'combat',
   task: 'task',
   connection: 'connection',
+  ai: 'ai',
 } as const;
 
 export interface LogEntry {

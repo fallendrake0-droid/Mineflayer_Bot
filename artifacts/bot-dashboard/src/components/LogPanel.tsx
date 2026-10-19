@@ -188,6 +188,7 @@ export function LogPanel({ heightClass = "h-full" }: { heightClass?: string }) {
               <SelectItem value="task">Tasks</SelectItem>
               <SelectItem value="combat">Combat</SelectItem>
               <SelectItem value="connection">Connection</SelectItem>
+              <SelectItem value="ai">AI brain</SelectItem>
             </SelectContent>
           </Select>
           <div className="relative flex-1 min-w-[110px]">

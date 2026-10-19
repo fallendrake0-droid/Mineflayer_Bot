@@ -18,6 +18,9 @@ import {
   chatComponentToText,
   describeConnectionError,
 } from "./bot-utils";
+import { AiClient, type AiConfig } from "./ai-client";
+import { AiBrain, type BrainHost, type BrainStepResult } from "./ai-brain";
+import { SkillLibrary, runSkillInSandbox } from "./ai-skills";
 import {
   RESOURCES,
   TREE_TYPES,
@@ -59,7 +62,7 @@ function loadViewer() {
 }
 
 export type LogLevel = "info" | "warn" | "error" | "success";
-export type LogCategory = "system" | "chat" | "combat" | "task" | "connection";
+export type LogCategory = "system" | "chat" | "combat" | "task" | "connection" | "ai";
 export type ConnectionState = "disconnected" | "connecting" | "connected" | "reconnecting";
 
 export interface LogEntry {
@@ -90,6 +93,8 @@ export interface BotSettings {
   chatCommandOwners: string[];
   viewerEnabled: boolean;
   viewerFirstPerson: boolean;
+  aiEnabled: boolean;
+  aiChatEnabled: boolean;
 }
 
 const DEFAULT_SETTINGS: BotSettings = {
@@ -105,6 +110,8 @@ const DEFAULT_SETTINGS: BotSettings = {
   chatCommandOwners: [],
   viewerEnabled: true,
   viewerFirstPerson: true,
+  aiEnabled: true,
+  aiChatEnabled: false,
 };
 
 export const VIEWER_PORT = Number(process.env["VIEWER_PORT"] ?? 3007);
@@ -113,6 +120,21 @@ export const VIEWER_PATH = "/viewer/";
 const SETTINGS_FILE =
   process.env["MINECONTROL_SETTINGS_FILE"] ??
   path.join(process.cwd(), "data", "minecontrol-settings.json");
+
+const AI_CONFIG_FILE =
+  process.env["MINECONTROL_AI_CONFIG_FILE"] ??
+  path.join(path.dirname(SETTINGS_FILE), "ai-config.json");
+const AI_SKILLS_FILE =
+  process.env["MINECONTROL_AI_SKILLS_FILE"] ??
+  path.join(path.dirname(SETTINGS_FILE), "ai-skills.json");
+const AI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
+const AI_DEFAULT_MODEL = "gemini-2.5-flash";
+
+interface StoredAiConfig {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+}
 
 // Indexed access avoids importing prismarine-* packages directly.
 type McEntity = Bot["entities"][number];
@@ -156,6 +178,7 @@ const CHAT_HELP_LINES = [
   "MineControl commands: !come, !follow <name>, !stop, !goto <x> [y] <z>",
   "!mine <resource> [count], !chop [type] [trees], !kill, !guard, !wander",
   "!eat, !sleep, !collect, !deposit, !drop [player], !climb [n], !build [size], !status, !inv",
+  "AI brain: !ai <goal in plain English>, !auto [on|off]",
 ];
 
 /**
@@ -193,6 +216,19 @@ class BotManager {
   private lastGoodYaw = 0;
   private lastGoodPitch = 0;
   private lastNanRepairLogAt = 0;
+
+  // --- AI brain state ---
+  private aiStoredConfig: StoredAiConfig = {};
+  private readonly aiClient = new AiClient(() => this.resolveAiConfig());
+  private readonly skillLibrary = new SkillLibrary(AI_SKILLS_FILE);
+  private aiBrain: AiBrain | null = null;
+  private aiGoalActive = false;
+  private aiAbortRequested = false;
+  private aiAutopilot = false;
+  private aiLoopRunning = false;
+  private aiCurrentGoal: string | null = null;
+  private aiLastOutcome: string | null = null;
+  private readonly aiChatLastAt = new Map<string, number>();
   private statusTimer: ReturnType<typeof setInterval> | null = null;
   private lastActivityAt = Date.now();
   private lastControlAt = 0;
@@ -216,6 +252,8 @@ class BotManager {
 
   constructor() {
     this.loadSettings();
+    this.loadAiConfig();
+    this.aiBrain = new AiBrain(this.aiClient, this.skillLibrary, this.createBrainHost());
   }
 
   // -------------------------------------------------------------------------
@@ -326,6 +364,594 @@ class BotManager {
   // -------------------------------------------------------------------------
   // Connection lifecycle
   // -------------------------------------------------------------------------
+
+  // -------------------------------------------------------------------------
+  // AI brain (LLM planner + sandboxed self-written skills)
+  // -------------------------------------------------------------------------
+
+  private loadAiConfig() {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(AI_CONFIG_FILE, "utf8")) as StoredAiConfig;
+      this.aiStoredConfig = {
+        apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : undefined,
+        baseUrl: typeof parsed.baseUrl === "string" ? parsed.baseUrl : undefined,
+        model: typeof parsed.model === "string" ? parsed.model : undefined,
+      };
+    } catch {
+      // No stored AI config yet — env vars / defaults apply.
+    }
+  }
+
+  private saveAiConfig() {
+    try {
+      fs.mkdirSync(path.dirname(AI_CONFIG_FILE), { recursive: true });
+      fs.writeFileSync(AI_CONFIG_FILE, JSON.stringify(this.aiStoredConfig, null, 2));
+    } catch (err) {
+      logger.warn({ err }, "Could not persist AI config");
+    }
+  }
+
+  private resolveAiConfig(): AiConfig {
+    return {
+      apiKey:
+        process.env["AI_API_KEY"] ??
+        process.env["GEMINI_API_KEY"] ??
+        process.env["OPENAI_API_KEY"] ??
+        this.aiStoredConfig.apiKey ??
+        null,
+      baseUrl: process.env["AI_BASE_URL"] ?? this.aiStoredConfig.baseUrl ?? AI_DEFAULT_BASE_URL,
+      model: process.env["AI_MODEL"] ?? this.aiStoredConfig.model ?? AI_DEFAULT_MODEL,
+    };
+  }
+
+  /** Public AI configuration — never includes the actual API key. */
+  getAiPublicConfig(): { hasKey: boolean; baseUrl: string; model: string } {
+    const cfg = this.resolveAiConfig();
+    return { hasKey: !!cfg.apiKey, baseUrl: cfg.baseUrl, model: cfg.model };
+  }
+
+  setAiConfig(partial: { apiKey?: string; baseUrl?: string; model?: string }) {
+    if (partial.apiKey !== undefined) {
+      this.aiStoredConfig.apiKey = partial.apiKey.trim() ? partial.apiKey.trim() : undefined;
+    }
+    if (partial.baseUrl !== undefined) {
+      this.aiStoredConfig.baseUrl = partial.baseUrl.trim() ? partial.baseUrl.trim() : undefined;
+    }
+    if (partial.model !== undefined) {
+      this.aiStoredConfig.model = partial.model.trim() ? partial.model.trim() : undefined;
+    }
+    this.saveAiConfig();
+    this.addLog("info", "AI configuration updated", "ai");
+    return this.getAiPublicConfig();
+  }
+
+  getAiStatus() {
+    const cfg = this.resolveAiConfig();
+    return {
+      configured: !!cfg.apiKey,
+      enabled: this.settings.aiEnabled,
+      chatEnabled: this.settings.aiChatEnabled,
+      model: cfg.model,
+      baseUrl: cfg.baseUrl,
+      autopilot: this.aiAutopilot,
+      goalActive: this.aiGoalActive,
+      currentGoal: this.aiCurrentGoal ?? undefined,
+      lastOutcome: this.aiLastOutcome ?? undefined,
+      usage: { ...(this.aiBrain?.usage ?? { calls: 0, promptTokens: 0, completionTokens: 0 }) },
+      skillCount: this.skillLibrary.list().length,
+    };
+  }
+
+  listAiSkills() {
+    return this.skillLibrary.list();
+  }
+
+  getAiSkill(name: string) {
+    return this.skillLibrary.get(name) ?? null;
+  }
+
+  deleteAiSkill(name: string): boolean {
+    const ok = this.skillLibrary.remove(name);
+    if (ok) this.addLog("info", `Deleted AI skill: ${name}`, "ai");
+    return ok;
+  }
+
+  private requireAiReady() {
+    if (!this.settings.aiEnabled) throw new Error("AI brain is disabled in Settings");
+    if (!this.aiClient.configured) {
+      throw new Error("AI is not configured — add an API key in the AI panel first");
+    }
+  }
+
+  /** Work on a natural-language goal. Resolves when the goal ends. */
+  async aiGoal(goalInput: string): Promise<void> {
+    this.requireConnected();
+    this.requireAiReady();
+    const goal = goalInput.trim().slice(0, 500);
+    if (!goal) throw new Error("Goal is empty");
+    if (this.aiGoalActive) {
+      throw new Error(`AI is already working on: ${this.aiCurrentGoal ?? "a goal"}`);
+    }
+    await this.runAiGoalInternal(goal, "user");
+  }
+
+  setAutopilot(on: boolean) {
+    if (on) {
+      this.requireConnected();
+      this.requireAiReady();
+    }
+    this.aiAutopilot = on;
+    if (on) {
+      this.addLog("info", "AI autopilot ON — the bot will choose its own goals", "ai");
+      void this.autopilotLoop();
+    } else {
+      this.aiAbortRequested = true;
+      this.addLog("info", "AI autopilot OFF", "ai");
+    }
+    this.broadcastStatus();
+  }
+
+  /** Stop any AI goal/autopilot and the current task. Safe to call anytime. */
+  aiStop() {
+    this.aiAbortRequested = true;
+    this.aiAutopilot = false;
+    if (this.bot && this.connectionState === "connected") {
+      this.cancelActiveTask("ai stop");
+      this.stopMotion();
+    }
+    this.addLog("info", "AI stopped", "ai");
+    this.broadcastStatus();
+  }
+
+  private async autopilotLoop(): Promise<void> {
+    if (this.aiLoopRunning) return;
+    this.aiLoopRunning = true;
+    try {
+      while (this.aiAutopilot) {
+        if (!this.bot || this.connectionState !== "connected" || this.aiGoalActive) {
+          await sleep(3000);
+          continue;
+        }
+        if (!this.settings.aiEnabled || !this.aiClient.configured) {
+          this.addLog("warn", "Autopilot paused — AI disabled or not configured", "ai");
+          this.aiAutopilot = false;
+          break;
+        }
+        await this.runAiGoalInternal(null, "autopilot");
+        // Brief breather between self-chosen goals (also bounds API spend).
+        for (let i = 0; i < 16 && this.aiAutopilot; i++) await sleep(250);
+      }
+    } finally {
+      this.aiLoopRunning = false;
+      this.broadcastStatus();
+    }
+  }
+
+  private async runAiGoalInternal(goal: string | null, source: string): Promise<void> {
+    if (!this.aiBrain || this.aiGoalActive) return;
+    this.aiGoalActive = true;
+    this.aiAbortRequested = false;
+    this.aiCurrentGoal = goal ?? "(autopilot)";
+    this.broadcastStatus();
+    this.addLog("info", goal ? `AI goal (${source}): ${goal}` : "AI autopilot: choosing a goal…", "ai");
+    try {
+      const { outcome } = await this.aiBrain.runGoal(goal, { maxRounds: 10 });
+      this.aiLastOutcome = outcome;
+      if (outcome === "aborted") this.addLog("info", "AI goal aborted", "ai");
+      else this.addLog("success", `AI finished: ${outcome}`, "ai");
+    } catch (err) {
+      this.aiLastOutcome = `error: ${errText(err)}`;
+      this.addLog("error", `AI goal failed: ${errText(err)}`, "ai");
+    } finally {
+      this.aiGoalActive = false;
+      this.aiCurrentGoal = null;
+      this.broadcastStatus();
+    }
+  }
+
+  /** Route an owner's plain chat message to the AI (opt-in setting). */
+  private maybeAiChat(sender: string, message: string) {
+    if (!this.settings.aiEnabled || !this.settings.aiChatEnabled) return;
+    if (!this.aiClient.configured || this.aiGoalActive || this.aiAutopilot) return;
+    if (!this.bot || this.connectionState !== "connected") return;
+    const now = Date.now();
+    const key = sender.toLowerCase();
+    if (now - (this.aiChatLastAt.get(key) ?? 0) < 5000) return;
+    this.aiChatLastAt.set(key, now);
+    const text = message.slice(0, 300);
+    void this.runAiGoalInternal(
+      `Player ${sender} said to you in chat: "${text}". Respond to them in chat (say), and if they asked you to do something, do it.`,
+      "chat",
+    );
+  }
+
+  private createBrainHost(): BrainHost {
+    return {
+      isConnected: () => !!this.bot && this.connectionState === "connected",
+      shouldAbort: () => this.aiAbortRequested,
+      getContext: () => this.buildAiContext(),
+      executeAction: (action, args) => this.executeAiAction(action, args),
+      runSkill: (skill, args) => this.executeAiSkill(skill, args),
+      say: (message) => this.say(message),
+      log: (message, level) => this.addLog(level ?? "info", message, "ai"),
+      recentLogLines: (count) => this.logs.slice(-count).map((e) => `${e.level}: ${e.message}`),
+    };
+  }
+
+  private currentTimeOfDayLabel(): string {
+    const t = (this.bot as unknown as { time?: { timeOfDay?: number } } | null)?.time?.timeOfDay;
+    return timeOfDayLabel(typeof t === "number" ? t : 6000);
+  }
+
+  private buildAiContext(): Record<string, unknown> {
+    const bot = this.bot;
+    if (!bot || !bot.entity) return { connected: false };
+    const pos = bot.entity.position;
+
+    const merged = new Map<string, number>();
+    for (const item of bot.inventory.items()) {
+      merged.set(item.name, (merged.get(item.name) ?? 0) + item.count);
+    }
+    const inventory = [...merged.entries()]
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 24)
+      .map(([name, count]) => ({ name, count }));
+    const armor = [5, 6, 7, 8]
+      .map((slot) => bot.inventory.slots[slot]?.name)
+      .filter((n): n is string => !!n);
+
+    const players = Object.values(bot.players)
+      .filter((p) => p.username !== bot.username && p.entity)
+      .map((p) => ({
+        name: p.username,
+        distance: Math.round(pos.distanceTo(p.entity!.position)),
+      }))
+      .sort((a, b) => a.distance - b.distance)
+      .slice(0, 8);
+
+    const hostiles: Array<{ name: string; distance: number }> = [];
+    let passiveCount = 0;
+    for (const e of Object.values(bot.entities)) {
+      if (!e || e === bot.entity || !e.position) continue;
+      const d = pos.distanceTo(e.position);
+      if (d > 32) continue;
+      if (isHostileMob(e.name)) hostiles.push({ name: e.name ?? "mob", distance: Math.round(d) });
+      else if (e.type === "mob") passiveCount++;
+    }
+    hostiles.sort((a, b) => a.distance - b.distance);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const game = bot.game as any;
+    const xp = (bot as unknown as { experience?: { level?: number } }).experience;
+
+    return {
+      username: bot.username,
+      version: bot.version,
+      dimension: normalizeDimension(game?.dimension),
+      position: { x: Math.floor(pos.x), y: Math.floor(pos.y), z: Math.floor(pos.z) },
+      health: Math.ceil(bot.health),
+      food: Math.floor(bot.food),
+      xpLevel: xp?.level ?? 0,
+      timeOfDay: this.currentTimeOfDayLabel(),
+      heldItem: bot.heldItem?.name ?? null,
+      armor,
+      inventory,
+      playersNearby: players,
+      hostilesNearby: hostiles.slice(0, 8),
+      passiveMobsNearby: passiveCount,
+      currentTask: this.activeTask?.label ?? null,
+      stats: {
+        blocksMined: this.stats.blocksMined,
+        logsChopped: this.stats.logsChopped,
+        treesChopped: this.stats.treesChopped,
+        mobsKilled: this.stats.mobsKilled,
+        itemsCollected: this.stats.itemsCollected,
+        deaths: this.stats.deaths,
+        distanceWalked: Math.round(this.stats.distanceWalked),
+      },
+    };
+  }
+
+  private async executeAiAction(
+    action: string,
+    args: Record<string, unknown>,
+  ): Promise<BrainStepResult> {
+    const num = (v: unknown, fallback = 0): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const str = (v: unknown): string => (typeof v === "string" ? v : v == null ? "" : String(v));
+
+    const invoke = async (): Promise<void> => {
+      switch (action) {
+        case "say":
+          this.say(str(args.message).slice(0, 240));
+          return;
+        case "goto": {
+          if (!Number.isFinite(Number(args.x)) || !Number.isFinite(Number(args.z))) {
+            throw new Error("goto needs numeric x and z");
+          }
+          await this.gotoCoords(num(args.x), args.y === undefined ? undefined : num(args.y), num(args.z));
+          return;
+        }
+        case "come": {
+          const name = str(args.player);
+          const p = this.bot?.players[name]?.entity?.position;
+          if (!p) throw new Error(`player "${name}" not found nearby`);
+          await this.gotoCoords(p.x, p.y, p.z);
+          return;
+        }
+        case "follow":
+          await this.follow(str(args.player));
+          return;
+        case "mine":
+          await this.mine(str(args.resource), clamp(Math.round(num(args.count, 16)), 1, 256));
+          return;
+        case "chop":
+          await this.chopTree(str(args.treeType) || "any", clamp(Math.round(num(args.count, 1)), 1, 64));
+          return;
+        case "killMobs":
+          await this.killMobs();
+          return;
+        case "attack":
+          await this.attackOnce(str(args.target), false);
+          return;
+        case "guard":
+          await this.guard();
+          return;
+        case "wander":
+          await this.wander();
+          return;
+        case "eat":
+          await this.eatNow();
+          return;
+        case "sleep":
+          await this.sleepInBed();
+          return;
+        case "build":
+          await this.buildBase(clamp(Math.round(num(args.size, 5)), 3, 9));
+          return;
+        case "climb":
+          await this.climb(clamp(Math.round(num(args.blocks, 3)), 1, 32));
+          return;
+        case "collect":
+          await this.collectItems();
+          return;
+        case "deposit":
+          await this.depositItems();
+          return;
+        case "giveTo":
+          await this.dropItems(str(args.player) || undefined);
+          return;
+        case "dropItem": {
+          const item = this.bot?.inventory.items().find((i) => i.name === str(args.item));
+          if (!item) throw new Error(`item "${str(args.item)}" not in inventory`);
+          await this.tossFromSlot(
+            item.slot,
+            args.count === undefined ? undefined : clamp(Math.round(num(args.count)), 1, 64),
+          );
+          return;
+        }
+        case "equip": {
+          const item = this.bot?.inventory.items().find((i) => i.name === str(args.item));
+          if (!item) throw new Error(`item "${str(args.item)}" not in inventory`);
+          await this.equipFromSlot(item.slot);
+          return;
+        }
+        case "pullLever":
+          await this.pullLever();
+          return;
+        case "wait": {
+          const until = Date.now() + clamp(num(args.seconds, 3), 0, 60) * 1000;
+          while (Date.now() < until && !this.aiAbortRequested) await sleep(250);
+          return;
+        }
+        default:
+          throw new Error(`unknown action "${action}"`);
+      }
+    };
+
+    const STEP_TIMEOUTS: Record<string, number> = {
+      follow: 120_000,
+      guard: 120_000,
+      wander: 90_000,
+      mine: 300_000,
+      chop: 300_000,
+      build: 420_000,
+      killMobs: 240_000,
+    };
+    const timeoutMs = STEP_TIMEOUTS[action] ?? 150_000;
+    const sinceMs = Date.now();
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+
+    const invokeP = invoke().then(
+      () => "done" as const,
+      (err: unknown) => ({ err: errText(err) }),
+    );
+    const outcome = await Promise.race([
+      invokeP,
+      new Promise<"timeout">((resolve) => {
+        timer = setTimeout(() => {
+          timedOut = true;
+          this.cancelActiveTask("ai step timeout");
+          resolve("timeout");
+        }, timeoutMs);
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    const error = typeof outcome === "object" ? outcome.err : null;
+
+    const newLogs = this.logs
+      .filter((e) => new Date(e.timestamp).getTime() >= sinceMs)
+      .map((e) => e.message);
+    const interrupted =
+      timedOut || newLogs.some((m) => m.startsWith("Stopped:")) || this.aiAbortRequested;
+    const tail = newLogs
+      .filter((m) => !m.startsWith("Stopped:"))
+      .slice(-3)
+      .join(" | ");
+    const detail = error
+      ? `error: ${error}`
+      : timedOut
+        ? `interrupted: step timed out after ${Math.round(timeoutMs / 1000)}s${tail ? ` — ${tail}` : ""}`
+        : interrupted
+          ? `interrupted${tail ? ` — ${tail}` : ""}`
+          : `completed${tail ? ` — ${tail}` : ""}`;
+    return { action, ok: !error && !interrupted, detail: detail.slice(0, 300) };
+  }
+
+  private async executeAiSkill(
+    skill: { name: string; code: string },
+    args: Record<string, unknown>,
+  ): Promise<BrainStepResult> {
+    let ok = false;
+    let detail = "completed";
+    const timeoutMs = 180_000;
+    await this.runTask(`ai-skill:${skill.name}`, `AI skill: ${skill.name}`, async (token) => {
+      const api = this.createSkillApi(token, args);
+      const outcome = await runSkillInSandbox(skill.code, api, {
+        timeoutMs,
+        onTimeout: () => token.cancel(),
+        onLog: (m) => this.addLog("info", `[${skill.name}] ${m}`.slice(0, 300), "ai"),
+      });
+      ok = outcome.ok && !token.cancelled;
+      detail = outcome.ok
+        ? `skill returned: ${outcome.result ?? "done"}`
+        : token.cancelled
+          ? `interrupted: ${outcome.error ?? "stopped"}`
+          : `error: ${outcome.error ?? "unknown error"}`;
+    });
+    return { action: `skill:${skill.name}`, ok, detail: detail.slice(0, 400) };
+  }
+
+  /** Frozen helper API handed to sandboxed AI skills. */
+  private createSkillApi(token: TaskToken, args: Record<string, unknown>): Record<string, unknown> {
+    const bot = this.bot!;
+    const floor3 = (v: Vec3) => ({ x: Math.floor(v.x), y: Math.floor(v.y), z: Math.floor(v.z) });
+    const num = (v: unknown, fallback = 0): number => {
+      const n = Number(v);
+      return Number.isFinite(n) ? n : fallback;
+    };
+    const EQUIP_DESTS = ["hand", "off-hand", "head", "torso", "legs", "feet"] as const;
+    type EquipDest = (typeof EQUIP_DESTS)[number];
+
+    return {
+      args,
+      say: (m: unknown) => this.say(String(m).slice(0, 240)),
+      log: (m: unknown) => this.addLog("info", String(m).slice(0, 300), "ai"),
+      sleep: (ms: unknown) => token.sleep(clamp(num(ms), 0, 30_000)),
+      checkpoint: () => token.throwIfCancelled(),
+      pos: () => floor3(bot.entity.position),
+      health: () => bot.health,
+      food: () => bot.food,
+      heldItem: () => bot.heldItem?.name ?? null,
+      inventory: () =>
+        bot.inventory.items().map((i) => ({ name: i.name, count: i.count, slot: i.slot })),
+      blockAt: (x: unknown, y: unknown, z: unknown) =>
+        bot.blockAt(new Vec3(num(x), num(y), num(z)))?.name ?? null,
+      findBlocks: (names: unknown, maxDist: unknown = 32, count: unknown = 8) => {
+        token.throwIfCancelled();
+        const mcData = this.getMcData();
+        if (!mcData) return [];
+        const list = Array.isArray(names) ? names : [names];
+        const ids = list
+          .map((n) => (mcData.blocksByName[String(n)]?.id as number | undefined))
+          .filter((id): id is number => typeof id === "number");
+        if (ids.length === 0) return [];
+        return bot
+          .findBlocks({
+            matching: ids,
+            maxDistance: clamp(num(maxDist, 32), 1, 64),
+            count: clamp(Math.round(num(count, 8)), 1, 32),
+          })
+          .map(floor3);
+      },
+      entities: (maxDist: unknown = 32) => {
+        const limit = clamp(num(maxDist, 32), 1, 64);
+        return Object.values(bot.entities)
+          .filter((e) => e && e !== bot.entity && e.position)
+          .map((e) => ({
+            name: e.name ?? e.username ?? "entity",
+            type: e.type,
+            distance: Math.round(bot.entity.position.distanceTo(e.position) * 10) / 10,
+            ...floor3(e.position),
+          }))
+          .filter((e) => e.distance <= limit)
+          .sort((a, b) => a.distance - b.distance)
+          .slice(0, 20);
+      },
+      playerPos: (name: unknown) => {
+        const p = bot.players[String(name)]?.entity?.position;
+        return p ? floor3(p) : null;
+      },
+      goto: async (x: unknown, y: unknown, z: unknown, range: unknown = 1) => {
+        this.setupMovements({ dig: false });
+        return this.gotoNear(token, new Vec3(num(x), num(y), num(z)), clamp(num(range, 1), 0, 8));
+      },
+      dig: async (x: unknown, y: unknown, z: unknown) => {
+        const target = new Vec3(Math.floor(num(x)), Math.floor(num(y)), Math.floor(num(z)));
+        const block = bot.blockAt(target);
+        if (!block || block.type === 0) return false;
+        if (bot.entity.position.distanceTo(target) > 4.2) {
+          this.setupMovements({ dig: false });
+          await this.gotoNear(token, target, 2);
+        }
+        token.throwIfCancelled();
+        const fresh = bot.blockAt(target);
+        if (!fresh || fresh.type === 0) return false;
+        return this.digBlock(token, fresh);
+      },
+      collect: async (radius: unknown = 12) =>
+        this.collectNearbyItems(token, clamp(num(radius, 12), 1, 32), 24),
+      place: async (itemName: unknown, x: unknown, y: unknown, z: unknown) =>
+        this.placeBuildingBlock(
+          token,
+          new Vec3(Math.floor(num(x)), Math.floor(num(y)), Math.floor(num(z))),
+          String(itemName),
+        ),
+      equip: async (itemName: unknown, dest: unknown = "hand") => {
+        const item = bot.inventory.items().find((i) => i.name === String(itemName));
+        if (!item) return false;
+        const d = (EQUIP_DESTS as readonly string[]).includes(String(dest))
+          ? (String(dest) as EquipDest)
+          : "hand";
+        return this.equipItem(item, d);
+      },
+      toss: async (itemName: unknown, count?: unknown) => {
+        const item = bot.inventory.items().find((i) => i.name === String(itemName));
+        if (!item) return false;
+        await token.wrap(
+          bot.toss(item.type, null, count === undefined ? item.count : clamp(Math.round(num(count)), 1, 64)),
+        );
+        return true;
+      },
+      eat: async () => {
+        await this.eatBestFood("manual");
+      },
+      attackNearest: async (maxDist: unknown = 16) => {
+        const limit = clamp(num(maxDist, 16), 1, 32);
+        const target = Object.values(bot.entities)
+          .filter(
+            (e) =>
+              e &&
+              e.position &&
+              isHostileMob(e.name) &&
+              bot.entity.position.distanceTo(e.position) <= limit,
+          )
+          .sort(
+            (a, b) =>
+              bot.entity.position.distanceTo(a.position) - bot.entity.position.distanceTo(b.position),
+          )[0];
+        if (!target) return false;
+        return this.combatEntity(token, target);
+      },
+      lookAt: async (x: unknown, y: unknown, z: unknown) => {
+        await token.wrap(bot.lookAt(new Vec3(num(x), num(y), num(z)), true));
+      },
+      timeOfDay: () => this.currentTimeOfDayLabel(),
+    };
+  }
 
   async connect(opts: ConnectOptions): Promise<void> {
     if (this.bot || this.connectionState === "connecting" || this.connectionState === "reconnecting") {
@@ -448,6 +1074,8 @@ class BotManager {
       throw new Error("Bot is not connected");
     }
     this.intentionalDisconnect = true;
+    this.aiAbortRequested = true;
+    this.aiAutopilot = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
@@ -484,6 +1112,7 @@ class BotManager {
     if (this.bot !== bot) return; // stale bot instance (already replaced)
 
     this.cancelActiveTask("disconnect");
+    this.aiAbortRequested = true;
     this.stopViewer();
     this.stopStatusLoop();
     this.stopChatLoop();
@@ -1043,6 +1672,8 @@ class BotManager {
 
   stop() {
     this.requireConnected();
+    this.aiAbortRequested = true;
+    this.aiAutopilot = false;
     this.cancelActiveTask("user stop");
     this.stopMotion();
     this.manualEngaged = false;
@@ -2308,12 +2939,16 @@ class BotManager {
   private handleChatCommand(sender: string, message: string) {
     if (!this.settings.chatCommandsEnabled) return;
     const trimmed = message.trim();
-    if (!trimmed.startsWith("!")) return;
-
     const owners = this.settings.chatCommandOwners;
-    if (owners.length > 0 && !owners.some((o) => o.toLowerCase() === sender.toLowerCase())) {
-      return; // silently ignore non-owners
+    const isOwner =
+      owners.length === 0 || owners.some((o) => o.toLowerCase() === sender.toLowerCase());
+
+    if (!trimmed.startsWith("!")) {
+      // Plain chat from an owner can be routed to the AI brain (opt-in).
+      if (isOwner && trimmed.length > 0) this.maybeAiChat(sender, trimmed);
+      return;
     }
+    if (!isOwner) return; // silently ignore non-owners
 
     const [rawCmd, ...args] = trimmed.split(/\s+/);
     const cmd = rawCmd.toLowerCase();
@@ -2421,6 +3056,25 @@ class BotManager {
       case "!build": {
         const n = args[0] ? parseInt(args[0], 10) : 5;
         run(this.buildBase(Number.isNaN(n) ? 5 : n), "Building a shelter…");
+        break;
+      }
+      case "!ai": {
+        const goal = args.join(" ").trim();
+        if (!goal) {
+          reply("Tell me a goal — e.g. !ai mine 10 iron and bring it to me");
+          break;
+        }
+        run(this.aiGoal(goal), `On it, ${sender} — working on: ${goal}`.slice(0, 200));
+        break;
+      }
+      case "!auto": {
+        const on = args[0]?.toLowerCase() !== "off";
+        try {
+          this.setAutopilot(on);
+          reply(on ? "Autopilot ON — I'll play on my own now. !stop or !auto off stops me." : "Autopilot OFF.");
+        } catch (err) {
+          reply(`Can't: ${errText(err).slice(0, 160)}`);
+        }
         break;
       }
       default:

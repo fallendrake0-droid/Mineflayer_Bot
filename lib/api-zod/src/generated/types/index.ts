@@ -6,6 +6,15 @@
  * OpenAPI spec version: 0.2.0
  */
 
+export * from './aiAutopilotRequest';
+export * from './aiConfigUpdate';
+export * from './aiGoalRequest';
+export * from './aiPublicConfig';
+export * from './aiSkill';
+export * from './aiSkillListResponse';
+export * from './aiSkillSummary';
+export * from './aiStatus';
+export * from './aiUsage';
 export * from './botCommandRequest';
 export * from './botCommandRequestCommand';
 export * from './botCommandRequestResource';

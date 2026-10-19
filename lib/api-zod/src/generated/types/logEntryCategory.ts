@@ -15,4 +15,5 @@ export const LogEntryCategory = {
   combat: 'combat',
   task: 'task',
   connection: 'connection',
+  ai: 'ai',
 } as const;

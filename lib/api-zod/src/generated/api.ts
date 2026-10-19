@@ -243,7 +243,9 @@ export const GetBotSettingsResponse = zod.object({
   "chatCommandsEnabled": zod.boolean().optional().describe('Allow !commands from in-game chat'),
   "chatCommandOwners": zod.array(zod.string()).optional().describe('Usernames allowed to use chat commands (empty = everyone)'),
   "viewerEnabled": zod.boolean().optional().describe('Start the prismarine-viewer live view when connected'),
-  "viewerFirstPerson": zod.boolean().optional().describe('First-person camera (true) or orbit camera (false)')
+  "viewerFirstPerson": zod.boolean().optional().describe('First-person camera (true) or orbit camera (false)'),
+  "aiEnabled": zod.boolean().optional().describe('Enable the LLM-powered AI brain (goals, autopilot, self-written skills)'),
+  "aiChatEnabled": zod.boolean().optional().describe('Let owners talk to the AI brain with plain in-game chat (not just !ai)')
 })
 
 
@@ -262,7 +264,9 @@ export const UpdateBotSettingsBody = zod.object({
   "chatCommandsEnabled": zod.boolean().optional().describe('Allow !commands from in-game chat'),
   "chatCommandOwners": zod.array(zod.string()).optional().describe('Usernames allowed to use chat commands (empty = everyone)'),
   "viewerEnabled": zod.boolean().optional().describe('Start the prismarine-viewer live view when connected'),
-  "viewerFirstPerson": zod.boolean().optional().describe('First-person camera (true) or orbit camera (false)')
+  "viewerFirstPerson": zod.boolean().optional().describe('First-person camera (true) or orbit camera (false)'),
+  "aiEnabled": zod.boolean().optional().describe('Enable the LLM-powered AI brain (goals, autopilot, self-written skills)'),
+  "aiChatEnabled": zod.boolean().optional().describe('Let owners talk to the AI brain with plain in-game chat (not just !ai)')
 })
 
 export const UpdateBotSettingsResponse = zod.object({
@@ -277,7 +281,9 @@ export const UpdateBotSettingsResponse = zod.object({
   "chatCommandsEnabled": zod.boolean().optional().describe('Allow !commands from in-game chat'),
   "chatCommandOwners": zod.array(zod.string()).optional().describe('Usernames allowed to use chat commands (empty = everyone)'),
   "viewerEnabled": zod.boolean().optional().describe('Start the prismarine-viewer live view when connected'),
-  "viewerFirstPerson": zod.boolean().optional().describe('First-person camera (true) or orbit camera (false)')
+  "viewerFirstPerson": zod.boolean().optional().describe('First-person camera (true) or orbit camera (false)'),
+  "aiEnabled": zod.boolean().optional().describe('Enable the LLM-powered AI brain (goals, autopilot, self-written skills)'),
+  "aiChatEnabled": zod.boolean().optional().describe('Let owners talk to the AI brain with plain in-game chat (not just !ai)')
 })
 
 
@@ -295,7 +301,7 @@ export const GetBotLogsResponse = zod.object({
   "timestamp": zod.string(),
   "level": zod.enum(['info', 'warn', 'error', 'success']),
   "message": zod.string(),
-  "category": zod.enum(['system', 'chat', 'combat', 'task', 'connection']).optional()
+  "category": zod.enum(['system', 'chat', 'combat', 'task', 'connection', 'ai']).optional()
 }))
 })
 
@@ -326,6 +332,149 @@ export const GetBotInventoryResponse = zod.object({
 })),
   "selectedSlot": zod.number().optional().describe('Currently selected hotbar slot (36–44)'),
   "heldItem": zod.string().optional().describe('Name of the item currently held')
+})
+
+
+/**
+ * @summary Give the AI brain a natural-language goal (starts asynchronously)
+ */
+export const AiGoalBody = zod.object({
+  "goal": zod.string().describe('Natural-language goal for the AI brain (e.g. \"mine 10 iron and bring it to me\")')
+})
+
+export const AiGoalResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Stop the current AI goal and autopilot
+ */
+export const AiStopResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Turn AI autopilot (self-chosen goals) on or off
+ */
+export const SetAiAutopilotBody = zod.object({
+  "enabled": zod.boolean().describe('Turn AI autopilot (self-chosen goals) on or off')
+})
+
+export const SetAiAutopilotResponse = zod.object({
+  "configured": zod.boolean(),
+  "enabled": zod.boolean(),
+  "chatEnabled": zod.boolean(),
+  "model": zod.string(),
+  "baseUrl": zod.string(),
+  "autopilot": zod.boolean(),
+  "goalActive": zod.boolean(),
+  "currentGoal": zod.string().optional(),
+  "lastOutcome": zod.string().optional(),
+  "usage": zod.object({
+  "calls": zod.number(),
+  "promptTokens": zod.number(),
+  "completionTokens": zod.number()
+}),
+  "skillCount": zod.number()
+})
+
+
+/**
+ * @summary AI brain status (config, current goal, usage)
+ */
+export const GetAiStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "enabled": zod.boolean(),
+  "chatEnabled": zod.boolean(),
+  "model": zod.string(),
+  "baseUrl": zod.string(),
+  "autopilot": zod.boolean(),
+  "goalActive": zod.boolean(),
+  "currentGoal": zod.string().optional(),
+  "lastOutcome": zod.string().optional(),
+  "usage": zod.object({
+  "calls": zod.number(),
+  "promptTokens": zod.number(),
+  "completionTokens": zod.number()
+}),
+  "skillCount": zod.number()
+})
+
+
+/**
+ * @summary List skills the AI has written for itself
+ */
+export const ListAiSkillsResponse = zod.object({
+  "skills": zod.array(zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "runs": zod.number(),
+  "successes": zod.number(),
+  "failures": zod.number(),
+  "updatedAt": zod.string()
+}))
+})
+
+
+/**
+ * @summary Get one AI skill including its source code
+ */
+export const GetAiSkillParams = zod.object({
+  "name": zod.coerce.string()
+})
+
+export const GetAiSkillResponse = zod.object({
+  "name": zod.string(),
+  "description": zod.string(),
+  "code": zod.string(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string(),
+  "runs": zod.number(),
+  "successes": zod.number(),
+  "failures": zod.number()
+})
+
+
+/**
+ * @summary Delete an AI skill
+ */
+export const DeleteAiSkillParams = zod.object({
+  "name": zod.coerce.string()
+})
+
+export const DeleteAiSkillResponse = zod.object({
+  "success": zod.boolean(),
+  "message": zod.string()
+})
+
+
+/**
+ * @summary Get public AI provider config (never returns the API key)
+ */
+export const GetAiConfigResponse = zod.object({
+  "hasKey": zod.boolean().describe('Whether an API key is configured (the key itself is never returned)'),
+  "baseUrl": zod.string(),
+  "model": zod.string()
+})
+
+
+/**
+ * @summary Update AI provider config (API key is write-only)
+ */
+export const UpdateAiConfigBody = zod.object({
+  "apiKey": zod.string().optional(),
+  "baseUrl": zod.string().optional().describe('OpenAI-compatible API base URL (default is Google Gemini\'s)'),
+  "model": zod.string().optional().describe('Model name (e.g. gemini-2.5-flash)')
+}).describe('Partial AI provider config. apiKey is write-only (stored server-side, never returned). Empty string clears a value.')
+
+export const UpdateAiConfigResponse = zod.object({
+  "hasKey": zod.boolean().describe('Whether an API key is configured (the key itself is never returned)'),
+  "baseUrl": zod.string(),
+  "model": zod.string()
 })
 
 

@@ -213,6 +213,173 @@ paths:
               schema:
                 $ref: "#/components/schemas/BotInventoryResponse"
 
+  /bot/ai/goal:
+    post:
+      operationId: aiGoal
+      tags: [bot]
+      summary: Give the AI brain a natural-language goal (starts asynchronously)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiGoalRequest"
+      responses:
+        "200":
+          description: Goal accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+        "400":
+          description: AI not configured/enabled, bot disconnected, or a goal is already active
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/ai/stop:
+    post:
+      operationId: aiStop
+      tags: [bot]
+      summary: Stop the current AI goal and autopilot
+      responses:
+        "200":
+          description: AI stopped
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+
+  /bot/ai/autopilot:
+    post:
+      operationId: setAiAutopilot
+      tags: [bot]
+      summary: Turn AI autopilot (self-chosen goals) on or off
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiAutopilotRequest"
+      responses:
+        "200":
+          description: Updated AI status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+        "400":
+          description: AI not configured/enabled or bot disconnected
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/ai/status:
+    get:
+      operationId: getAiStatus
+      tags: [bot]
+      summary: AI brain status (config, current goal, usage)
+      responses:
+        "200":
+          description: AI status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiStatus"
+
+  /bot/ai/skills:
+    get:
+      operationId: listAiSkills
+      tags: [bot]
+      summary: List skills the AI has written for itself
+      responses:
+        "200":
+          description: Skill summaries
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSkillListResponse"
+
+  /bot/ai/skills/{name}:
+    get:
+      operationId: getAiSkill
+      tags: [bot]
+      summary: Get one AI skill including its source code
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiSkill"
+        "404":
+          description: No such skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteAiSkill
+      tags: [bot]
+      summary: Delete an AI skill
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Skill deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommandResponse"
+        "404":
+          description: No such skill
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /bot/ai/config:
+    get:
+      operationId: getAiConfig
+      tags: [bot]
+      summary: Get public AI provider config (never returns the API key)
+      responses:
+        "200":
+          description: Public AI config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPublicConfig"
+    put:
+      operationId: updateAiConfig
+      tags: [bot]
+      summary: Update AI provider config (API key is write-only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AiConfigUpdate"
+      responses:
+        "200":
+          description: Updated public AI config
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AiPublicConfig"
+
 components:
   schemas:
     HealthStatus:
@@ -516,6 +683,12 @@ components:
         viewerFirstPerson:
           type: boolean
           description: First-person camera (true) or orbit camera (false)
+        aiEnabled:
+          type: boolean
+          description: Enable the LLM-powered AI brain (goals, autopilot, self-written skills)
+        aiChatEnabled:
+          type: boolean
+          description: Let owners talk to the AI brain with plain in-game chat (not just !ai)
 
     CommandResponse:
       type: object
@@ -527,6 +700,164 @@ components:
       required:
         - success
         - message
+
+    AiGoalRequest:
+      type: object
+      properties:
+        goal:
+          type: string
+          description: Natural-language goal for the AI brain (e.g. "mine 10 iron and bring it to me")
+      required:
+        - goal
+
+    AiAutopilotRequest:
+      type: object
+      properties:
+        enabled:
+          type: boolean
+          description: Turn AI autopilot (self-chosen goals) on or off
+      required:
+        - enabled
+
+    AiConfigUpdate:
+      type: object
+      description: Partial AI provider config. apiKey is write-only (stored server-side, never returned). Empty string clears a value.
+      properties:
+        apiKey:
+          type: string
+        baseUrl:
+          type: string
+          description: OpenAI-compatible API base URL (default is Google Gemini's)
+        model:
+          type: string
+          description: Model name (e.g. gemini-2.5-flash)
+
+    AiPublicConfig:
+      type: object
+      properties:
+        hasKey:
+          type: boolean
+          description: Whether an API key is configured (the key itself is never returned)
+        baseUrl:
+          type: string
+        model:
+          type: string
+      required:
+        - hasKey
+        - baseUrl
+        - model
+
+    AiUsage:
+      type: object
+      properties:
+        calls:
+          type: integer
+        promptTokens:
+          type: integer
+        completionTokens:
+          type: integer
+      required:
+        - calls
+        - promptTokens
+        - completionTokens
+
+    AiStatus:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        enabled:
+          type: boolean
+        chatEnabled:
+          type: boolean
+        model:
+          type: string
+        baseUrl:
+          type: string
+        autopilot:
+          type: boolean
+        goalActive:
+          type: boolean
+        currentGoal:
+          type: string
+        lastOutcome:
+          type: string
+        usage:
+          $ref: "#/components/schemas/AiUsage"
+        skillCount:
+          type: integer
+      required:
+        - configured
+        - enabled
+        - chatEnabled
+        - model
+        - baseUrl
+        - autopilot
+        - goalActive
+        - usage
+        - skillCount
+
+    AiSkillSummary:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        runs:
+          type: integer
+        successes:
+          type: integer
+        failures:
+          type: integer
+        updatedAt:
+          type: string
+      required:
+        - name
+        - description
+        - runs
+        - successes
+        - failures
+        - updatedAt
+
+    AiSkill:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        code:
+          type: string
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+        runs:
+          type: integer
+        successes:
+          type: integer
+        failures:
+          type: integer
+      required:
+        - name
+        - description
+        - code
+        - createdAt
+        - updatedAt
+        - runs
+        - successes
+        - failures
+
+    AiSkillListResponse:
+      type: object
+      properties:
+        skills:
+          type: array
+          items:
+            $ref: "#/components/schemas/AiSkillSummary"
+      required:
+        - skills
 
     BotLogsResponse:
       type: object
@@ -560,6 +891,7 @@ components:
             - combat
             - task
             - connection
+            - ai
       required:
         - timestamp
         - level
