@@ -16,6 +16,7 @@ import {
   timeOfDayLabel,
   prettifyName,
   chatComponentToText,
+  describeConnectionError,
 } from "./bot-utils";
 import {
   RESOURCES,
@@ -396,7 +397,7 @@ class BotManager {
         clearTimeout(timer);
         try { bot.end(); } catch { /* ignore */ }
         this.handleDisconnect(bot, `Connection failed: ${err.message}`);
-        reject(err);
+        reject(new Error(describeConnectionError(err.message)));
       };
 
       bot.once("spawn", () => {
@@ -491,11 +492,15 @@ class BotManager {
     if (this.connectedAt !== null && Date.now() - this.connectedAt >= 60_000) {
       this.reconnectAttempts = 0;
     }
+    // Pre-spawn failures get a plain-English hint appended (offline server,
+    // wrong port, blocked network…) — raw socket errors are useless to
+    // most users staring at the dashboard log.
+    const shownReason = this.connectedAt === null ? describeConnectionError(reason) : reason;
     this.connectedAt = null;
     this.lastPosition = null;
     this.manualEngaged = false;
     this.taskDetail = "";
-    this.addLog("warn", reason, "connection");
+    this.addLog("warn", shownReason, "connection");
 
     if (!this.scheduleReconnect()) {
       this.connectionState = "disconnected";
@@ -614,6 +619,18 @@ class BotManager {
 
     bot.on("error", (err) => {
       const message = errText(err);
+      // Pre-spawn, the connect boot path already reports the failure (with a
+      // plain-English hint); the same socket error also arrives here — twice
+      // (version-ping socket + login socket). Don't double-log it. Stale bot
+      // instances (already replaced/disconnected) are ignored too.
+      if (
+        this.bot !== bot ||
+        this.connectionState === "connecting" ||
+        this.connectionState === "reconnecting"
+      ) {
+        logger.debug({ err }, "Bot error during connect (reported via connect failure)");
+        return;
+      }
       // Socket teardown races (writing after a kick/disconnect) add noise,
       // not signal — the disconnect itself is already logged.
       if (/EPIPE|ECONNRESET|ERR_SOCKET|socketClosed/i.test(message)) {

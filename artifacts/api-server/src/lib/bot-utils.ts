@@ -252,3 +252,26 @@ export function chatComponentToText(input: unknown, maxLen = 220): string {
   }
   return componentNodeToText(input, null, maxLen);
 }
+
+/**
+ * Append a plain-English hint to a raw connection failure — socket errors
+ * like "write EPIPE" or "socketClosed" mean nothing to most users.
+ * Returns the input unchanged when no known pattern matches.
+ */
+export function describeConnectionError(raw: string): string {
+  let hint: string | null = null;
+  if (/ECONNREFUSED/i.test(raw)) {
+    hint = "nothing is listening at that address — is the server online, and is the port right?";
+  } else if (/ENOTFOUND|EAI_AGAIN/i.test(raw)) {
+    hint = "that hostname could not be resolved — check the address for typos";
+  } else if (/ETIMEDOUT|timed out/i.test(raw)) {
+    hint = "the server did not answer in time — it may be offline, still starting, or blocked by a firewall";
+  } else if (/EPIPE|ECONNRESET|socketClosed|socket hang up/i.test(raw)) {
+    hint =
+      "the connection was closed during login — the server may be offline or still starting, the port may be wrong " +
+      "(hosts like Aternos change it every restart), or outbound connections to it are blocked";
+  } else if (/protocol version|unsupported.*version/i.test(raw)) {
+    hint = "this Minecraft version may not be supported yet — try setting the version explicitly to match the server";
+  }
+  return hint ? `${raw} — ${hint}` : raw;
+}
