@@ -15,6 +15,7 @@ import {
   compassFromYaw,
   timeOfDayLabel,
   prettifyName,
+  chatComponentToText,
 } from "./bot-utils";
 import {
   RESOURCES,
@@ -187,6 +188,10 @@ class BotManager {
 
   private stats: SessionStats = freshStats();
   private lastPosition: Vec3 | null = null;
+  private lastGoodPosition: Vec3 | null = null;
+  private lastGoodYaw = 0;
+  private lastGoodPitch = 0;
+  private lastNanRepairLogAt = 0;
   private statusTimer: ReturnType<typeof setInterval> | null = null;
   private lastActivityAt = Date.now();
   private lastControlAt = 0;
@@ -399,8 +404,14 @@ class BotManager {
         this.connectionState = "connected";
         this.everSpawned = true;
         this.connectedAt = Date.now();
-        this.reconnectAttempts = 0;
+        // reconnectAttempts is intentionally NOT reset here: a server that
+        // kicks the bot seconds after every spawn must still exhaust its
+        // budget and give up. handleDisconnect resets it after a stable
+        // (>= 60s) session. Manual connect() also resets it.
+        this.touchActivity();
         this.prevHealth = bot.health;
+        this.lastGoodPosition = null;
+        this.sanitizeEntityState(bot);
         this.lastPosition = bot.entity?.position?.clone() ?? null;
         this.mcDataCache = null;
         this.addLog("success", `Spawned as ${bot.username} on ${opts.host}:${opts.port} (MC ${bot.version})`, "connection");
@@ -476,6 +487,10 @@ class BotManager {
     this.stopStatusLoop();
     this.stopChatLoop();
     this.bot = null;
+    // Only a session that stayed up a while earns a fresh reconnect budget.
+    if (this.connectedAt !== null && Date.now() - this.connectedAt >= 60_000) {
+      this.reconnectAttempts = 0;
+    }
     this.connectedAt = null;
     this.lastPosition = null;
     this.manualEngaged = false;
@@ -588,16 +603,96 @@ class BotManager {
       this.broadcastStatus();
     });
 
+    // Repair NaN-poisoned entity state before physics can forward it to the
+    // server (vanilla/Paper kicks with "Invalid move player packet received").
+    bot.on("move", () => this.sanitizeEntityState(bot));
+    bot.on("physicsTick", () => this.sanitizeEntityState(bot));
+
     bot.on("kicked", (reason) => {
-      this.addLog("error", `Kicked from server: ${reasonToText(reason)}`, "connection");
+      this.addLog("error", `Kicked from server: ${chatComponentToText(reason)}`, "connection");
     });
 
     bot.on("error", (err) => {
-      this.addLog("error", `Bot error: ${errText(err)}`, "connection");
+      const message = errText(err);
+      // Socket teardown races (writing after a kick/disconnect) add noise,
+      // not signal — the disconnect itself is already logged.
+      if (/EPIPE|ECONNRESET|ERR_SOCKET|socketClosed/i.test(message)) {
+        logger.debug({ err }, "Ignoring bot socket teardown error");
+        return;
+      }
+      this.addLog("error", `Bot error: ${message}`, "connection");
     });
 
     bot.on("end", (reason) => {
-      this.handleDisconnect(bot, `Disconnected: ${reasonToText(reason)}`);
+      this.handleDisconnect(bot, `Disconnected: ${chatComponentToText(reason)}`);
+    });
+  }
+
+  /**
+   * Detect and repair non-finite entity state (position / velocity / look).
+   * Some servers and plugins — respawns, lobby teleports, version
+   * translation layers (ViaVersion / ViaBackwards) — can momentarily hand
+   * Mineflayer a NaN position or rotation. Physics would forward that to
+   * the server in the next movement packet, and vanilla/Paper kicks with
+   * "Invalid move player packet received" (observed live on an Aternos
+   * server, 2026-10-19). Restoring the last known-good values in the
+   * 'move'/'physicsTick' handlers keeps the connection alive.
+   */
+  private sanitizeEntityState(bot: Bot) {
+    const entity = bot.entity;
+    if (!entity) return;
+    let repaired = false;
+
+    const pos = entity.position;
+    if (pos) {
+      if (Number.isFinite(pos.x) && Number.isFinite(pos.y) && Number.isFinite(pos.z)) {
+        if (!this.lastGoodPosition) {
+          this.lastGoodPosition = pos.clone();
+        } else {
+          this.lastGoodPosition.x = pos.x;
+          this.lastGoodPosition.y = pos.y;
+          this.lastGoodPosition.z = pos.z;
+        }
+      } else if (this.lastGoodPosition) {
+        pos.x = this.lastGoodPosition.x;
+        pos.y = this.lastGoodPosition.y;
+        pos.z = this.lastGoodPosition.z;
+        repaired = true;
+      }
+    }
+
+    const vel = entity.velocity;
+    if (vel && (!Number.isFinite(vel.x) || !Number.isFinite(vel.y) || !Number.isFinite(vel.z))) {
+      vel.x = 0;
+      vel.y = 0;
+      vel.z = 0;
+      repaired = true;
+    }
+
+    if (Number.isFinite(entity.yaw)) {
+      this.lastGoodYaw = entity.yaw;
+    } else {
+      entity.yaw = this.lastGoodYaw;
+      repaired = true;
+    }
+    if (Number.isFinite(entity.pitch)) {
+      this.lastGoodPitch = entity.pitch;
+    } else {
+      entity.pitch = this.lastGoodPitch;
+      repaired = true;
+    }
+
+    if (repaired && Date.now() - this.lastNanRepairLogAt > 10_000) {
+      this.lastNanRepairLogAt = Date.now();
+      this.addLog("warn", "Repaired invalid (NaN) position/rotation sent by the server — preventing a kick", "connection");
+    }
+  }
+
+  /** bot.look that refuses to send non-finite rotation (an instant kick). */
+  private lookSafe(bot: Bot, yaw: number, pitch: number) {
+    if (!Number.isFinite(yaw) || !Number.isFinite(pitch)) return;
+    void bot.look(yaw, clamp(pitch, -1.55, 1.55), false).catch(() => {
+      // Bot ended mid-look — nothing to do.
     });
   }
 
@@ -777,7 +872,7 @@ class BotManager {
     if (Date.now() - this.lastActivityAt < 45_000) return;
     this.lastActivityAt = Date.now();
     this.afkCycle++;
-    void bot.look(bot.entity.yaw + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 0.3, false);
+    this.lookSafe(bot, bot.entity.yaw + (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 0.3);
     if (this.afkCycle % 3 === 0) {
       bot.setControlState("jump", true);
       setTimeout(() => {
@@ -1406,7 +1501,7 @@ class BotManager {
           await this.gotoNear(token, anchor, 1);
         }
         // Slow scan of the surroundings while idle.
-        void bot.look(bot.entity.yaw + 0.7, 0, false);
+        this.lookSafe(bot, bot.entity.yaw + 0.7, 0);
         await token.sleep(900);
       }
     });
@@ -2183,7 +2278,7 @@ class BotManager {
       const yaw = bot.entity.yaw + yawDelta;
       // API convention: positive pitchDelta looks down; Mineflayer pitch is positive-up.
       const pitch = clamp(bot.entity.pitch - pitchDelta, -1.55, 1.55);
-      void bot.look(yaw, pitch, false);
+      this.lookSafe(bot, yaw, pitch);
     }
     this.lastControlAt = Date.now();
     this.touchActivity();
@@ -2331,16 +2426,6 @@ function freshStats(): SessionStats {
   };
 }
 
-function reasonToText(reason: unknown): string {
-  if (typeof reason === "string") return reason;
-  try {
-    // Kick reasons are often chat-component JSON.
-    const text = JSON.stringify(reason);
-    return text.length > 220 ? `${text.slice(0, 220)}…` : text;
-  } catch {
-    return String(reason);
-  }
-}
 
 function normalizeDimension(dim: unknown): string {
   if (typeof dim === "number") {

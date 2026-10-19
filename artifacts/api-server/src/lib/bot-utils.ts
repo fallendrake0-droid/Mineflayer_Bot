@@ -146,3 +146,109 @@ export function prettifyName(name: string): string {
     .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
     .join(" ");
 }
+
+// ---------------------------------------------------------------------------
+// Chat-component → plain text (kick reasons, disconnect messages)
+// ---------------------------------------------------------------------------
+
+const NBT_TAG_TYPES = new Set([
+  "byte", "short", "int", "long", "float", "double",
+  "byteArray", "string", "list", "compound", "intArray", "longArray",
+]);
+
+/** Unwrap a protodef/prismarine-nbt node ({ type, value }) into plain JS. */
+function deNbtify(node: unknown, depth = 0): unknown {
+  if (!node || typeof node !== "object" || depth > 16) return node;
+  const nbt = node as { type?: unknown; value?: unknown };
+  if (typeof nbt.type !== "string" || !NBT_TAG_TYPES.has(nbt.type) || !("value" in nbt)) {
+    return node;
+  }
+  switch (nbt.type) {
+    case "compound": {
+      if (!nbt.value || typeof nbt.value !== "object") return {};
+      const out: Record<string, unknown> = {};
+      for (const [key, val] of Object.entries(nbt.value as Record<string, unknown>)) {
+        out[key] = deNbtify(val, depth + 1);
+      }
+      return out;
+    }
+    case "list": {
+      const listVal = nbt.value as { type?: unknown; value?: unknown } | null;
+      const items = listVal && Array.isArray(listVal.value) ? listVal.value : [];
+      // Items are raw values of the inner tag type (strings, numbers, or
+      // compound maps that still need unwrapping).
+      return items.map((item: unknown) =>
+        listVal?.type === "compound" ? deNbtify({ type: "compound", value: item }, depth + 1) : item,
+      );
+    }
+    default:
+      return nbt.value;
+  }
+}
+
+function truncateText(text: string, maxLen: number): string {
+  return text.length > maxLen ? `${text.slice(0, maxLen)}…` : text;
+}
+
+function componentNodeToText(node: unknown, fallbackRaw: string | null, maxLen: number): string {
+  // prismarine-chat ChatMessage instances know how to render themselves.
+  if (node && typeof node === "object") {
+    const ctorName = (node as { constructor?: { name?: unknown } }).constructor?.name;
+    if (ctorName === "ChatMessage") {
+      const rendered = String((node as { toString: () => string }).toString());
+      if (rendered) return truncateText(rendered.replace(/\s+/g, " ").trim(), maxLen);
+    }
+  }
+
+  let text = "";
+  const visit = (n: unknown, depth: number): void => {
+    if (depth > 16 || text.length > maxLen * 2) return;
+    const plain = deNbtify(n, depth);
+    if (typeof plain === "string") {
+      text += plain;
+      return;
+    }
+    if (Array.isArray(plain)) {
+      for (const child of plain) visit(child, depth + 1);
+      return;
+    }
+    if (!plain || typeof plain !== "object") return;
+    const comp = plain as Record<string, unknown>;
+    if (typeof comp.text === "string") text += comp.text;
+    else if (comp.text !== undefined) visit(comp.text, depth + 1);
+    if (comp.extra !== undefined) visit(comp.extra, depth + 1);
+    if (comp.text === undefined && comp.extra === undefined && typeof comp.translate === "string") {
+      text += comp.translate;
+    }
+  };
+  visit(node, 0);
+
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (cleaned) return truncateText(cleaned, maxLen);
+  if (fallbackRaw) return truncateText(fallbackRaw, maxLen);
+  try {
+    return truncateText(JSON.stringify(node) ?? String(node), maxLen);
+  } catch {
+    return truncateText(String(node), maxLen);
+  }
+}
+
+/**
+ * Render a Minecraft chat component — or a kick/disconnect reason in any of
+ * the shapes Mineflayer delivers — as plain text. Handles plain strings,
+ * JSON-encoded components, prismarine-chat ChatMessage instances, component
+ * objects ({ text, extra, translate }) and the NBT-wrapped components
+ * ({ type: "compound", value: … }) newer protocol versions use.
+ */
+export function chatComponentToText(input: unknown, maxLen = 220): string {
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return truncateText(input, maxLen);
+    try {
+      return componentNodeToText(JSON.parse(trimmed) as unknown, input, maxLen);
+    } catch {
+      return truncateText(input, maxLen);
+    }
+  }
+  return componentNodeToText(input, null, maxLen);
+}
