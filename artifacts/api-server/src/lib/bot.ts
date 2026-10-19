@@ -17,6 +17,7 @@ import {
   prettifyName,
   chatComponentToText,
   describeConnectionError,
+  sanitizeMovePacketParams,
 } from "./bot-utils";
 import { AiClient, type AiConfig } from "./ai-client";
 import { AiBrain, type BrainHost, type BrainStepResult } from "./ai-brain";
@@ -216,6 +217,7 @@ class BotManager {
   private lastGoodYaw = 0;
   private lastGoodPitch = 0;
   private lastNanRepairLogAt = 0;
+  private lastMoveGuardLogAt = 0;
 
   // --- AI brain state ---
   private aiStoredConfig: StoredAiConfig = {};
@@ -991,6 +993,7 @@ class BotManager {
     }
     this.bot = bot;
     try {
+      this.installMovePacketGuard(bot);
       bot.loadPlugin(pathfinder);
       this.wireBotEvents(bot);
     } catch (err) {
@@ -1234,6 +1237,7 @@ class BotManager {
 
     bot.on("respawn", () => {
       this.addLog("info", "Respawned", "connection");
+      this.sanitizeEntityState(bot);
       this.broadcastStatus();
     });
 
@@ -1284,6 +1288,46 @@ class BotManager {
    * server, 2026-10-19). Restoring the last known-good values in the
    * 'move'/'physicsTick' handlers keeps the connection alive.
    */
+  /**
+   * Last line of defence against "Invalid move player packet received"
+   * kicks: wrap the protocol client's write path and repair any non-finite
+   * movement field with the last known-good value before serialization.
+   * Mineflayer's forced-move response after a server-initiated respawn
+   * (e.g. SkinsRestorer applying a skin on join) can compute NaN yaw/pitch
+   * and send it synchronously from its packet handler — before our
+   * physicsTick sanitizer ever gets a chance to run. Installed immediately
+   * after createBot so it covers every write from the first packet on.
+   */
+  private installMovePacketGuard(bot: Bot) {
+    const client = bot._client as unknown as {
+      write: (name: string, params: Record<string, unknown>) => void;
+    } | null;
+    if (!client || typeof client.write !== "function") return;
+    const originalWrite = client.write.bind(client);
+    client.write = (name: string, params: Record<string, unknown>) => {
+      const fallbackPos = this.lastGoodPosition;
+      const repaired = sanitizeMovePacketParams(name, params, {
+        x: fallbackPos?.x ?? 0,
+        y: fallbackPos?.y ?? 64,
+        z: fallbackPos?.z ?? 0,
+        yaw: this.lastGoodYaw,
+        pitch: this.lastGoodPitch,
+      });
+      if (repaired) {
+        this.sanitizeEntityState(bot);
+        if (Date.now() - this.lastMoveGuardLogAt > 10_000) {
+          this.lastMoveGuardLogAt = Date.now();
+          this.addLog(
+            "warn",
+            "Guarded an invalid movement packet (NaN position/rotation repaired before sending)",
+            "connection",
+          );
+        }
+      }
+      return originalWrite(name, params);
+    };
+  }
+
   private sanitizeEntityState(bot: Bot) {
     const entity = bot.entity;
     if (!entity) return;

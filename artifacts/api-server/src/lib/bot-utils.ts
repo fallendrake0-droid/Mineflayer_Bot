@@ -275,3 +275,53 @@ export function describeConnectionError(raw: string): string {
   }
   return hint ? `${raw} — ${hint}` : raw;
 }
+
+// ---------------------------------------------------------------------------
+// Outbound movement-packet guard
+// ---------------------------------------------------------------------------
+
+export interface MovePacketFallback {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+  pitch: number;
+}
+
+const MOVE_PACKET_FIELDS: Record<string, Array<keyof MovePacketFallback>> = {
+  position: ["x", "y", "z"],
+  look: ["yaw", "pitch"],
+  position_look: ["x", "y", "z", "yaw", "pitch"],
+};
+
+/**
+ * Repair non-finite fields in an outbound movement packet, in place, and
+ * report whether anything had to be fixed.
+ *
+ * Why: mineflayer answers a server `position` packet (teleport / respawn)
+ * synchronously inside its packet handler with `position_look`, computed
+ * from relative-flag math over the entity's current yaw/pitch. Right after
+ * a server-initiated respawn (e.g. SkinsRestorer applying a skin on join)
+ * that math can yield NaN, and mineflayer only finite-checks x/y/z before
+ * sending — never yaw/pitch. Vanilla/Paper responds with a kick:
+ * "Invalid move player packet received". Sanitizing at the `_client.write`
+ * choke point covers every send path (physics ticks, forced moves, the
+ * delayed post-death response, look calls), not just the ones we can hook.
+ */
+export function sanitizeMovePacketParams(
+  name: string,
+  params: Record<string, unknown> | undefined | null,
+  fallback: MovePacketFallback,
+): boolean {
+  const fields = MOVE_PACKET_FIELDS[name];
+  if (!fields || !params || typeof params !== "object") return false;
+  let repaired = false;
+  for (const field of fields) {
+    const value = params[field];
+    if (typeof value !== "number" || !Number.isFinite(value)) {
+      params[field] = fallback[field];
+      repaired = true;
+    }
+  }
+  return repaired;
+}
