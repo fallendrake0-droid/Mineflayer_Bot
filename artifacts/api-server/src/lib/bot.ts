@@ -1245,6 +1245,7 @@ class BotManager {
     // server (vanilla/Paper kicks with "Invalid move player packet received").
     bot.on("move", () => this.sanitizeEntityState(bot));
     bot.on("physicsTick", () => this.sanitizeEntityState(bot));
+    bot.on("forcedMove", () => this.sanitizeEntityState(bot));
 
     bot.on("kicked", (reason) => {
       this.addLog("error", `Kicked from server: ${chatComponentToText(reason)}`, "connection");
@@ -1326,6 +1327,7 @@ class BotManager {
       }
       return originalWrite(name, params);
     };
+    this.addLog("info", "Movement-packet guard installed", "connection");
   }
 
   private sanitizeEntityState(bot: Bot) {
