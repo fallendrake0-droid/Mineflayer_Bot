@@ -8,7 +8,7 @@
  * the manager supplies state snapshots, executes built-in actions (each
  * as a normal cancellable task), runs skills, and owns abort semantics.
  */
-import { type AiClient, type AiChatMessage, extractJsonObject } from "./ai-client";
+import { type AiClient, type AiChatMessage, type AiChatResult, extractJsonObject } from "./ai-client";
 import { type SkillLibrary, screenSkillCode, validateSkillName } from "./ai-skills";
 import { RESOURCES, TREE_TYPES } from "./bot-data";
 
@@ -186,6 +186,7 @@ export class AiBrain {
   private async plan(
     goal: string,
     history: string[],
+    signal?: AbortSignal,
   ): Promise<AiPlan> {
     const system = buildSystemPrompt(this.skills.catalog());
     const user = [
@@ -207,7 +208,10 @@ export class AiBrain {
     ];
 
     for (let attempt = 0; attempt < 3; attempt++) {
-      const result = await this.client.chat(messages, { temperature: 0.4, maxTokens: 2000 });
+      if (attempt > 0) {
+        this.host.log(`AI: the model returned an unusable plan — asking again (${attempt + 1}/3)`, "warn");
+      }
+      const result = await this.chatWithHeartbeat(messages, signal);
       this.usage.calls += 1;
       this.usage.promptTokens += result.promptTokens;
       this.usage.completionTokens += result.completionTokens;
@@ -220,7 +224,39 @@ export class AiBrain {
         content: "That was not a valid plan. Reply with ONLY the JSON object described in the format — no prose, no markdown fences.",
       });
     }
-    throw new Error("AI returned an unparseable plan three times in a row");
+    throw new Error(
+      "AI returned an unparseable plan three times in a row" +
+        (this.client.isLocal
+          ? " — small local models often can't follow the strict JSON plan format; try a larger/smarter model (or a cloud provider), or a simpler goal"
+          : ""),
+    );
+  }
+
+  /**
+   * One model call with visible "thinking" feedback. Local models on CPU
+   * can take minutes to reply; without these log lines the bot looks
+   * frozen while it is simply waiting. Fast (cloud) replies log nothing.
+   */
+  private async chatWithHeartbeat(
+    messages: AiChatMessage[],
+    signal?: AbortSignal,
+  ): Promise<AiChatResult> {
+    const startedAt = Date.now();
+    const slowNote = setTimeout(() => {
+      this.host.log("AI: thinking… (waiting for the model to reply — local models on CPU can take minutes)");
+    }, 5000);
+    const heartbeat = setInterval(() => {
+      this.host.log(`AI: still thinking… (${Math.round((Date.now() - startedAt) / 1000)}s)`);
+    }, 30_000);
+    try {
+      const result = await this.client.chat(messages, { temperature: 0.4, maxTokens: 2000, signal });
+      const secs = Math.round((Date.now() - startedAt) / 1000);
+      if (secs >= 20) this.host.log(`AI: model replied after ${secs}s`);
+      return result;
+    } finally {
+      clearTimeout(slowNote);
+      clearInterval(heartbeat);
+    }
   }
 
   /**
@@ -229,7 +265,7 @@ export class AiBrain {
    */
   async runGoal(
     goal: string | null,
-    opts?: { maxRounds?: number },
+    opts?: { maxRounds?: number; signal?: AbortSignal },
   ): Promise<{ outcome: string }> {
     const goalText = goal ?? "(autopilot — choose your own worthwhile goal this cycle)";
     const maxRounds = opts?.maxRounds ?? 10;
@@ -240,11 +276,19 @@ export class AiBrain {
     };
 
     for (let round = 1; round <= maxRounds; round++) {
-      if (this.host.shouldAbort() || !this.host.isConnected()) {
+      if (opts?.signal?.aborted || this.host.shouldAbort() || !this.host.isConnected()) {
         return { outcome: "aborted" };
       }
 
-      const plan = await this.plan(goalText, history);
+      let plan: AiPlan;
+      try {
+        plan = await this.plan(goalText, history, opts?.signal);
+      } catch (err) {
+        // STOP during a (possibly minutes-long) model call aborts the
+        // request itself; report a clean abort, not a goal failure.
+        if (opts?.signal?.aborted) return { outcome: "aborted" };
+        throw err;
+      }
       if (plan.reasoning) this.host.log(`AI: ${plan.reasoning.slice(0, 200)}`);
       if (plan.say) this.host.say(plan.say.slice(0, 240));
 

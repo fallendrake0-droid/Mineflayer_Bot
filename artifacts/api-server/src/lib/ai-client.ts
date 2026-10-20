@@ -73,7 +73,7 @@ export class AiClient {
 
   async chat(
     messages: AiChatMessage[],
-    opts?: { timeoutMs?: number; temperature?: number; maxTokens?: number },
+    opts?: { timeoutMs?: number; temperature?: number; maxTokens?: number; signal?: AbortSignal },
   ): Promise<AiChatResult> {
     const cfg = this.getConfig();
     const local = isLocalAiBaseUrl(cfg.baseUrl);
@@ -82,14 +82,21 @@ export class AiClient {
         "AI is not configured — add an API key in the dashboard's AI panel, or switch the provider to local Ollama (no key needed)",
       );
     }
+    if (opts?.signal?.aborted) throw new Error("AI request aborted by user");
     const url = `${cfg.baseUrl.replace(/\/+$/, "")}/chat/completions`;
     // Local CPU inference can be slow; cloud APIs should answer quickly.
     const timeoutMs = opts?.timeoutMs ?? (local ? 300_000 : 90_000);
     const maxAttempts = 3;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      if (opts?.signal?.aborted) throw new Error("AI request aborted by user");
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
+      // STOP must cancel an in-flight call immediately — with a slow local
+      // model a single request can run for minutes, and waiting for it to
+      // finish (or time out) makes STOP look broken.
+      const onExternalAbort = () => controller.abort();
+      opts?.signal?.addEventListener("abort", onExternalAbort, { once: true });
       try {
         const res = await fetch(url, {
           method: "POST",
@@ -136,6 +143,9 @@ export class AiClient {
           completionTokens: json.usage?.completion_tokens ?? 0,
         };
       } catch (err) {
+        if (opts?.signal?.aborted) {
+          throw new Error("AI request aborted by user");
+        }
         if (err instanceof Error && err.name === "AbortError") {
           throw new Error("AI request timed out");
         }
@@ -154,6 +164,7 @@ export class AiClient {
         throw err;
       } finally {
         clearTimeout(timer);
+        opts?.signal?.removeEventListener("abort", onExternalAbort);
       }
     }
     // Unreachable (the loop always returns or throws), but keep TS happy.

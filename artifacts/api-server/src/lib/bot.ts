@@ -228,6 +228,7 @@ class BotManager {
   private aiBrain: AiBrain | null = null;
   private aiGoalActive = false;
   private aiAbortRequested = false;
+  private aiCallAbort: AbortController | null = null;
   private aiAutopilot = false;
   private aiLoopRunning = false;
   private aiCurrentGoal: string | null = null;
@@ -489,7 +490,7 @@ class BotManager {
       this.addLog("info", "AI autopilot ON — the bot will choose its own goals", "ai");
       void this.autopilotLoop();
     } else {
-      this.aiAbortRequested = true;
+      this.requestAiAbort();
       this.addLog("info", "AI autopilot OFF", "ai");
     }
     this.broadcastStatus();
@@ -497,7 +498,7 @@ class BotManager {
 
   /** Stop any AI goal/autopilot and the current task. Safe to call anytime. */
   aiStop() {
-    this.aiAbortRequested = true;
+    this.requestAiAbort();
     this.aiAutopilot = false;
     if (this.bot && this.connectionState === "connected") {
       this.cancelActiveTask("ai stop");
@@ -531,15 +532,25 @@ class BotManager {
     }
   }
 
+  /** Flag AI abort AND immediately cancel any in-flight model call. */
+  private requestAiAbort() {
+    this.aiAbortRequested = true;
+    this.aiCallAbort?.abort();
+  }
+
   private async runAiGoalInternal(goal: string | null, source: string): Promise<void> {
     if (!this.aiBrain || this.aiGoalActive) return;
     this.aiGoalActive = true;
     this.aiAbortRequested = false;
+    this.aiCallAbort = new AbortController();
     this.aiCurrentGoal = goal ?? "(autopilot)";
     this.broadcastStatus();
     this.addLog("info", goal ? `AI goal (${source}): ${goal}` : "AI autopilot: choosing a goal…", "ai");
     try {
-      const { outcome } = await this.aiBrain.runGoal(goal, { maxRounds: 10 });
+      const { outcome } = await this.aiBrain.runGoal(goal, {
+        maxRounds: 10,
+        signal: this.aiCallAbort.signal,
+      });
       this.aiLastOutcome = outcome;
       if (outcome === "aborted") this.addLog("info", "AI goal aborted", "ai");
       else this.addLog("success", `AI finished: ${outcome}`, "ai");
@@ -549,6 +560,7 @@ class BotManager {
     } finally {
       this.aiGoalActive = false;
       this.aiCurrentGoal = null;
+      this.aiCallAbort = null;
       this.broadcastStatus();
     }
   }
@@ -1083,7 +1095,7 @@ class BotManager {
       throw new Error("Bot is not connected");
     }
     this.intentionalDisconnect = true;
-    this.aiAbortRequested = true;
+    this.requestAiAbort();
     this.aiAutopilot = false;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -1121,7 +1133,7 @@ class BotManager {
     if (this.bot !== bot) return; // stale bot instance (already replaced)
 
     this.cancelActiveTask("disconnect");
-    this.aiAbortRequested = true;
+    this.requestAiAbort();
     this.stopViewer();
     this.stopStatusLoop();
     this.stopChatLoop();
@@ -1818,7 +1830,7 @@ class BotManager {
 
   stop() {
     this.requireConnected();
-    this.aiAbortRequested = true;
+    this.requestAiAbort();
     this.aiAutopilot = false;
     this.cancelActiveTask("user stop");
     this.stopMotion();
