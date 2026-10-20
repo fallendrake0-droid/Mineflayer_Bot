@@ -1669,10 +1669,63 @@ class BotManager {
         "info",
         `Live view started (${this.settings.viewerFirstPerson ? "first-person" : "orbit"} camera${fallbackNote})`,
       );
+      if (viewerBot !== bot && viewerVersion) this.verifyViewerAnnounces(viewerVersion);
     } catch (err) {
       this.viewerRunning = false;
       this.addLog("warn", `Could not start live view: ${errText(err)}`);
     }
+  }
+
+  /**
+   * Best-effort end-to-end check of the live view: connect to our own
+   * prismarine-viewer socket the way a browser would (socket.io polling)
+   * and confirm which assets version it announces. Logs one line either
+   * way so a blank view is diagnosable from the log alone. Only runs on
+   * the version-fallback path, where the breakage risk lives.
+   */
+  private verifyViewerAnnounces(expected: string) {
+    const base = `http://127.0.0.1:${VIEWER_PORT}/viewer/socket.io/`;
+    const attempt = async (triesLeft: number): Promise<void> => {
+      try {
+        const openRes = await fetch(`${base}?EIO=4&transport=polling`, {
+          signal: AbortSignal.timeout(4000),
+        });
+        const openText = await openRes.text();
+        const sid = /"sid":"([^"]+)"/.exec(openText)?.[1];
+        if (!sid) throw new Error("viewer did not return a session id");
+        const sessionUrl = `${base}?EIO=4&transport=polling&sid=${encodeURIComponent(sid)}`;
+        await fetch(sessionUrl, {
+          method: "POST",
+          body: "40",
+          headers: { "content-type": "text/plain; charset=utf-8" },
+          signal: AbortSignal.timeout(4000),
+        });
+        const pollRes = await fetch(sessionUrl, { signal: AbortSignal.timeout(4000) });
+        const pollText = await pollRes.text();
+        // Politely close the namespace so the phantom viewer disconnects.
+        await fetch(sessionUrl, { method: "POST", body: "41" }).catch(() => undefined);
+        const announced = /42\["version","([^"]+)"\]/.exec(pollText)?.[1];
+        if (!announced) throw new Error("viewer sent no version event");
+        if (announced === expected) {
+          this.addLog("info", `Live view check: ready (viewer assets ${announced})`, "connection");
+        } else {
+          this.addLog(
+            "warn",
+            `Live view check: viewer announced "${announced}", expected "${expected}" — the live view may be blank`,
+            "connection",
+          );
+        }
+      } catch (err) {
+        if (triesLeft > 0) {
+          await sleep(700);
+          return attempt(triesLeft - 1);
+        }
+        this.addLog("warn", `Live view check failed: ${errText(err)}`, "connection");
+      }
+    };
+    setTimeout(() => {
+      void attempt(3);
+    }, 700);
   }
 
   private stopViewer() {

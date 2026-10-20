@@ -1,3 +1,20 @@
+diff --git a/lib/mineflayer.js b/lib/mineflayer.js
+index 06634bf6415ec41410e95ec816bebcc239726497..887a0e96c87758b8b7fca01cc26e08583eda9cf2 100644
+--- a/lib/mineflayer.js
++++ b/lib/mineflayer.js
+@@ -46,7 +46,11 @@ module.exports = (bot, { viewDistance = 6, firstPerson = false, port = 3000, pre
+   }
+ 
+   io.on('connection', (socket) => {
+-    socket.emit('version', bot.version)
++    // MineControl: this release only ships browser assets up to 1.21.4 and
++    // its getVersion() rejects 26.x bots ("null is not supported"), leaving
++    // a blank view. Announce 1.21.4 for 26.x bots so the bundled assets are
++    // used as a close fallback (chunk JSON cross-loads cleanly).
++    socket.emit('version', /^26\./.test(bot.version || '') ? '1.21.4' : bot.version)
+     sockets.push(socket)
+ 
+     const worldView = new WorldView(bot.world, viewDistance, bot.entity.position, socket)
 diff --git a/viewer/lib/atlas.js b/viewer/lib/atlas.js
 index d36ccca30bc5093192c531a5a9303223b5c4dc3e..9c5dab55c4b3749070145cc406dfa72a9e7f69ab 100644
 --- a/viewer/lib/atlas.js
