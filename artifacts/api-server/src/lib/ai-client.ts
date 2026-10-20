@@ -107,6 +107,10 @@ export class AiClient {
         });
         const text = await res.text();
         if (!res.ok) {
+          // Some failures will never succeed on retry — fail fast with an
+          // actionable message instead of hammering the provider.
+          const fatal = fatalProviderHint(res.status, text, cfg);
+          if (fatal) throw new Error(fatal);
           // Free-tier cloud models regularly return 503 "high demand" (and
           // 429 rate limits); those are worth a couple of spaced retries.
           const retryable = res.status === 429 || res.status >= 500;
@@ -155,6 +159,29 @@ export class AiClient {
     // Unreachable (the loop always returns or throws), but keep TS happy.
     throw new Error("AI request failed");
   }
+}
+
+/**
+ * Recognize provider errors that retrying cannot fix and translate them
+ * into actionable messages. Returns null for ordinary/transient errors.
+ * Seen in the wild: Ollama on a low-RAM Chromebook answers HTTP 500
+ * "llama-server reported out-of-memory … attempted to allocate 4685 MB"
+ * for an 8B model — retrying just re-attempts the same doomed load.
+ */
+function fatalProviderHint(status: number, body: string, cfg: AiConfig): string | null {
+  if (/out[ _-]?of[ _-]?memory|insufficient memory|failed to allocate/i.test(body)) {
+    return (
+      `AI model ran out of memory while loading — "${cfg.model}" is too large for this machine's free RAM. ` +
+      "Try a smaller model (e.g. llama3.2:3b or qwen2.5-coder:3b, ~2 GB) or close other apps to free memory, then try again"
+    );
+  }
+  if (status === 404 && /not found/i.test(body) && isLocalAiBaseUrl(cfg.baseUrl)) {
+    return (
+      `AI model "${cfg.model}" is not installed on the local AI server — run: ollama pull ${cfg.model} ` +
+      "(or pick an installed model via LOAD MODELS in the AI panel)"
+    );
+  }
+  return null;
 }
 
 function truncate(text: string, max: number): string {

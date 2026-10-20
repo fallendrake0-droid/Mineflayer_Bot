@@ -134,13 +134,17 @@ MineControl can use a large language model as the bot's brain — the
 
 The brain can run on a model on your own machine instead of a cloud API:
 
-1. Install [Ollama](https://ollama.com) and pull a model:
-   `ollama pull llama3.1:8b` (better code skills: `ollama pull qwen2.5-coder:7b`).
+1. Install [Ollama](https://ollama.com) and pull
+   a model that fits your RAM. 7–8B models need ~5 GB free
+   (`ollama pull llama3.1:8b`; better code skills: `qwen2.5-coder:7b`) —
+   low-memory machines (most Chromebooks) will crash them with
+   "out of memory", so use a 1–3B model there (~2 GB):
+   `ollama pull llama3.2:3b` or `ollama pull qwen2.5-coder:3b`.
 2. Make sure it's serving: `ollama serve` (usually already running).
 3. In the dashboard **AI BRAIN** panel click **OLLAMA · LOCAL**, then
    **Load models** to pick an installed model → **Save**. No API key
    needed for local/LAN endpoints. (Or env vars:
-   `AI_BASE_URL=http://localhost:11434/v1 AI_MODEL=llama3.1:8b`.)
+   `AI_BASE_URL=http://localhost:11434/v1 AI_MODEL=llama3.2:3b`.)
 
 Local endpoints get a longer timeout (CPU inference is slow) and transient
 provider errors (HTTP 429/5xx, network blips) auto-retry. Speed/smarts

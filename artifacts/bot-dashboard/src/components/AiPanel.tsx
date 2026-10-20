@@ -47,7 +47,7 @@ const PROVIDERS = [
     id: "ollama",
     label: "OLLAMA · LOCAL",
     baseUrl: "http://localhost:11434/v1",
-    model: "llama3.1:8b",
+    model: "llama3.2:3b",
   },
   {
     id: "openai",
@@ -250,7 +250,7 @@ export function AiPanel() {
           ) : (
             <Input
               className={`${inputCls} mt-1`}
-              placeholder={local ? "llama3.1:8b" : "gemini-2.5-flash"}
+              placeholder={local ? "llama3.2:3b" : "gemini-2.5-flash"}
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />
@@ -279,8 +279,10 @@ export function AiPanel() {
         <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
           Runs 100% on this machine — free, no tokens, no key. Needs Ollama running (
           <span className="text-foreground">ollama serve</span>) and a model pulled, e.g.{" "}
-          <span className="text-foreground">ollama pull llama3.1:8b</span>. On a Chromebook expect slow
-          replies; smaller models (llama3.2:3b) think faster but plan worse.
+          <span className="text-foreground">ollama pull llama3.2:3b</span>. Mind your RAM: 7–8B models
+          need ~5 GB free and crash low-memory Chromebooks with "out of memory" — 1–3B models
+          (llama3.2:3b, qwen2.5-coder:3b, ~2 GB) are the safe pick there. Expect slow replies on CPU;
+          smaller models think faster but plan worse.
         </p>
       ) : activePreset === "openai" ? (
         <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
