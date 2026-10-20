@@ -206,7 +206,7 @@ export class AiBrain {
       { role: "user", content: user },
     ];
 
-    for (let attempt = 0; attempt < 2; attempt++) {
+    for (let attempt = 0; attempt < 3; attempt++) {
       const result = await this.client.chat(messages, { temperature: 0.4, maxTokens: 2000 });
       this.usage.calls += 1;
       this.usage.promptTokens += result.promptTokens;
@@ -220,7 +220,7 @@ export class AiBrain {
         content: "That was not a valid plan. Reply with ONLY the JSON object described in the format — no prose, no markdown fences.",
       });
     }
-    throw new Error("AI returned an unparseable plan twice in a row");
+    throw new Error("AI returned an unparseable plan three times in a row");
   }
 
   /**

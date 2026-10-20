@@ -36,6 +36,46 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 const inputCls = "font-mono text-xs h-8 bg-card";
 const btnCls = "font-mono text-xs whitespace-nowrap h-8";
 
+const PROVIDERS = [
+  {
+    id: "gemini",
+    label: "GEMINI",
+    baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
+    model: "gemini-2.5-flash",
+  },
+  {
+    id: "ollama",
+    label: "OLLAMA · LOCAL",
+    baseUrl: "http://localhost:11434/v1",
+    model: "llama3.1:8b",
+  },
+  {
+    id: "openai",
+    label: "OPENAI",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4o-mini",
+  },
+] as const;
+
+/** Mirrors the backend's local-endpoint detection (key not required). */
+function isLocalUrl(u: string): boolean {
+  try {
+    const h = new URL(u).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return (
+      h === "localhost" ||
+      h === "127.0.0.1" ||
+      h === "::1" ||
+      h === "0.0.0.0" ||
+      h.endsWith(".local") ||
+      h.startsWith("192.168.") ||
+      h.startsWith("10.") ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(h)
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function AiPanel() {
   const { status: botStatus } = useBot();
   const connected = Boolean(botStatus?.connected);
@@ -63,6 +103,8 @@ export function AiPanel() {
   const [baseUrl, setBaseUrl] = useState("");
   const [viewSkill, setViewSkill] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [localModels, setLocalModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
 
   const skillDetail = useGetAiSkill(viewSkill ?? "", {
     query: { queryKey: getGetAiSkillQueryKey(viewSkill ?? ""), enabled: !!viewSkill },
@@ -79,6 +121,40 @@ export function AiPanel() {
   const enabled = ai?.enabled !== false;
   const busy = Boolean(ai?.goalActive);
   const skills = skillsQuery.data?.skills ?? [];
+  const local = isLocalUrl(baseUrl);
+  const activePreset =
+    PROVIDERS.find((p) => p.baseUrl === baseUrl.trim())?.id ?? (local ? "ollama" : "custom");
+
+  const applyPreset = (preset: (typeof PROVIDERS)[number]) => {
+    setBaseUrl(preset.baseUrl);
+    setModel(preset.model);
+    setLocalModels([]);
+  };
+
+  const loadModels = async () => {
+    const root = baseUrl.trim().replace(/\/+$/, "");
+    if (!root) return;
+    setLoadingModels(true);
+    try {
+      const res = await fetch(`${root}/models`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = (await res.json()) as { data?: Array<{ id?: string }> };
+      const ids = (json.data ?? []).map((m) => m.id).filter((x): x is string => !!x);
+      if (ids.length === 0) throw new Error("no models returned");
+      setLocalModels(ids);
+      if (!ids.includes(model.trim())) setModel(ids[0]);
+      toast({ title: `Found ${ids.length} local model${ids.length === 1 ? "" : "s"}` });
+    } catch {
+      toast({
+        title: "Couldn't reach Ollama",
+        description:
+          "Is `ollama serve` running? You can also type the model name manually — run `ollama list` to see what's installed.",
+        variant: "destructive",
+      });
+    } finally {
+      setLoadingModels(false);
+    }
+  };
 
   const fail = (title: string) => (err: unknown) =>
     toast({ title, description: errMsg(err), variant: "destructive" });
@@ -124,37 +200,105 @@ export function AiPanel() {
 
   const configForm = (
     <div className="space-y-2">
-      <label className="block">
-        <span className="font-mono text-[10px] text-muted-foreground">API KEY</span>
-        <Input
-          type="password"
-          autoComplete="off"
-          className={`${inputCls} mt-1`}
-          placeholder={cfg?.hasKey ? "•••••• configured — paste to replace" : "Paste your AI API key"}
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-        />
-      </label>
+      <div>
+        <span className="font-mono text-[10px] text-muted-foreground">PROVIDER</span>
+        <div className="flex gap-1 mt-1">
+          {PROVIDERS.map((preset) => (
+            <Button
+              key={preset.id}
+              size="sm"
+              variant={activePreset === preset.id ? "secondary" : "ghost"}
+              className={`${btnCls} flex-1 justify-center`}
+              onClick={() => applyPreset(preset)}
+            >
+              {preset.label}
+            </Button>
+          ))}
+        </div>
+        {activePreset === "custom" && (
+          <div className="font-mono text-[10px] text-muted-foreground mt-1">Custom endpoint</div>
+        )}
+      </div>
+      {!local && (
+        <label className="block">
+          <span className="font-mono text-[10px] text-muted-foreground">API KEY</span>
+          <Input
+            type="password"
+            autoComplete="off"
+            className={`${inputCls} mt-1`}
+            placeholder={cfg?.hasKey ? "•••••• configured — paste to replace" : "Paste your AI API key"}
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+          />
+        </label>
+      )}
       <div className="grid grid-cols-2 gap-2">
         <label className="block">
           <span className="font-mono text-[10px] text-muted-foreground">MODEL</span>
-          <Input className={`${inputCls} mt-1`} placeholder="gemini-2.5-flash" value={model} onChange={(e) => setModel(e.target.value)} />
+          {local && localModels.length > 0 ? (
+            <select
+              className="font-mono text-xs h-8 bg-card mt-1 w-full rounded-md border border-input px-2"
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            >
+              {localModels.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <Input
+              className={`${inputCls} mt-1`}
+              placeholder={local ? "llama3.1:8b" : "gemini-2.5-flash"}
+              value={model}
+              onChange={(e) => setModel(e.target.value)}
+            />
+          )}
         </label>
         <label className="block">
           <span className="font-mono text-[10px] text-muted-foreground">BASE URL</span>
           <Input className={`${inputCls} mt-1`} placeholder="https://…" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
         </label>
       </div>
+      {local && (
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`${btnCls} w-full justify-center`}
+          onClick={() => void loadModels()}
+          disabled={loadingModels}
+        >
+          {loadingModels ? "CHECKING OLLAMA…" : "LOAD MODELS FROM OLLAMA"}
+        </Button>
+      )}
       <Button size="sm" variant="secondary" className={`${btnCls} w-full justify-center`} onClick={saveConfig} disabled={updateConfig.isPending}>
         <KeyRound className="w-3 h-3 mr-1" /> SAVE PROVIDER CONFIG
       </Button>
-      <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
-        Free key (Gemini):{" "}
-        <a className="text-primary underline" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
-          aistudio.google.com/apikey
-        </a>{" "}
-        → "Create API key". Stored server-side only, never shown again.
-      </p>
+      {local ? (
+        <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
+          Runs 100% on this machine — free, no tokens, no key. Needs Ollama running (
+          <span className="text-foreground">ollama serve</span>) and a model pulled, e.g.{" "}
+          <span className="text-foreground">ollama pull llama3.1:8b</span>. On a Chromebook expect slow
+          replies; smaller models (llama3.2:3b) think faster but plan worse.
+        </p>
+      ) : activePreset === "openai" ? (
+        <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
+          Key from platform.openai.com → API keys. Stored server-side only, never shown again.
+        </p>
+      ) : activePreset === "custom" ? (
+        <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
+          Any OpenAI-compatible endpoint works. Stored server-side only, never shown again.
+        </p>
+      ) : (
+        <p className="font-mono text-[10px] text-muted-foreground leading-relaxed">
+          Free key (Gemini):{" "}
+          <a className="text-primary underline" href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer">
+            aistudio.google.com/apikey
+          </a>{" "}
+          → "Create API key". Stored server-side only, never shown again.
+        </p>
+      )}
     </div>
   );
 
@@ -165,7 +309,7 @@ export function AiPanel() {
           <Brain className="w-4 h-4" /> AI BRAIN
           <span className="ml-auto font-mono text-[10px] tracking-normal">
             {!configured ? (
-              <span className="text-amber-400">NO API KEY</span>
+              <span className="text-amber-400">{local ? "LOCAL · UNSAVED" : "NO API KEY"}</span>
             ) : busy ? (
               <span className="text-primary animate-pulse">WORKING…</span>
             ) : ai?.autopilot ? (
@@ -181,7 +325,8 @@ export function AiPanel() {
           <>
             <p className="font-mono text-[11px] text-muted-foreground leading-relaxed">
               Give the bot an LLM brain: plain-English goals, autopilot play, and skills it writes
-              for itself. Add an API key to switch it on.
+              for itself. Add an API key — or choose OLLAMA · LOCAL to run it on this machine for
+              free (no key, no tokens).
             </p>
             {configForm}
           </>
@@ -262,7 +407,8 @@ export function AiPanel() {
                 />
               </div>
               <div className="font-mono text-[10px] text-muted-foreground">
-                {ai?.model} · {ai?.usage.calls ?? 0} AI calls · {ai?.usage.promptTokens ?? 0}+
+                {ai?.model}
+                {ai?.baseUrl && isLocalUrl(ai.baseUrl) ? " · local (free)" : ""} · {ai?.usage.calls ?? 0} AI calls · {ai?.usage.promptTokens ?? 0}+
                 {ai?.usage.completionTokens ?? 0} tokens · in-game: !ai &lt;goal&gt;, !auto
               </div>
             </Section>

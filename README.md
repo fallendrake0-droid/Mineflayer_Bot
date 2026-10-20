@@ -96,7 +96,7 @@ settings) can command the bot from Minecraft chat:
 | `!climb [n]` | Pillar up n blocks |
 | `!build [size]` | Build a walled shelter with a roof |
 | `!status` / `!inv` | Report vitals / inventory |
-| `!ai <goal>` | Give the AI brain a goal in plain English (needs API key) |
+| `!ai <goal>` | Give the AI brain a goal in plain English (needs AI configured) |
 | `!auto [on\|off]` | Toggle AI autopilot (self-chosen goals) |
 
 If the whitelist is empty, **everyone** can use chat commands — set your
@@ -129,6 +129,25 @@ MineControl can use a large language model as the bot's brain — the
    `data/ai-config.json`, never sent back to the browser) — or set env vars
    instead: `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL`.
 3. Connect the bot and give it a goal!
+
+### Run it fully local with Ollama (free — no key, no tokens)
+
+The brain can run on a model on your own machine instead of a cloud API:
+
+1. Install [Ollama](https://ollama.com) and pull a model:
+   `ollama pull llama3.1:8b` (better code skills: `ollama pull qwen2.5-coder:7b`).
+2. Make sure it's serving: `ollama serve` (usually already running).
+3. In the dashboard **AI BRAIN** panel click **OLLAMA · LOCAL**, then
+   **Load models** to pick an installed model → **Save**. No API key
+   needed for local/LAN endpoints. (Or env vars:
+   `AI_BASE_URL=http://localhost:11434/v1 AI_MODEL=llama3.1:8b`.)
+
+Local endpoints get a longer timeout (CPU inference is slow) and transient
+provider errors (HTTP 429/5xx, network blips) auto-retry. Speed/smarts
+depend on your hardware: on a CPU-only Chromebook an 8B model may take a
+minute or more per planning step — a 3B model (`llama3.2:3b`) is much
+faster but plans worse. **No-NPC-server tip:** cloud keys are never deleted
+when switching presets, so you can flip between local and cloud freely.
 
 Settings live in **AUTOMATION**: `AI brain` (master switch) and `AI chat`
 (owners can talk to the AI in plain chat instead of `!ai`).

@@ -432,7 +432,7 @@ class BotManager {
   getAiStatus() {
     const cfg = this.resolveAiConfig();
     return {
-      configured: !!cfg.apiKey,
+      configured: this.aiClient.configured,
       enabled: this.settings.aiEnabled,
       chatEnabled: this.settings.aiChatEnabled,
       model: cfg.model,
@@ -463,7 +463,7 @@ class BotManager {
   private requireAiReady() {
     if (!this.settings.aiEnabled) throw new Error("AI brain is disabled in Settings");
     if (!this.aiClient.configured) {
-      throw new Error("AI is not configured — add an API key in the AI panel first");
+      throw new Error("AI is not configured — add an API key in the AI panel, or switch the provider to local Ollama (no key needed)");
     }
   }
 
@@ -558,6 +558,10 @@ class BotManager {
     if (!this.settings.aiEnabled || !this.settings.aiChatEnabled) return;
     if (!this.aiClient.configured || this.aiGoalActive || this.aiAutopilot) return;
     if (!this.bot || this.connectionState !== "connected") return;
+    // Only real, currently-online players — server/plugin pseudo-senders
+    // (e.g. "<NOTICE> You are running…") aren't in the tab list and would
+    // otherwise burn AI calls on every server announcement.
+    if (!this.bot.players[sender]) return;
     const now = Date.now();
     const key = sender.toLowerCase();
     if (now - (this.aiChatLastAt.get(key) ?? 0) < 5000) return;
