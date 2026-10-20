@@ -18,6 +18,8 @@ import {
   chatComponentToText,
   describeConnectionError,
   sanitizeMovePacketParams,
+  viewerVersionForBotVersion,
+  withViewerVersion,
 } from "./bot-utils";
 import { AiClient, type AiConfig } from "./ai-client";
 import { AiBrain, type BrainHost, type BrainStepResult } from "./ai-brain";
@@ -218,12 +220,6 @@ class BotManager {
   private lastGoodPitch = 0;
   private lastNanRepairLogAt = 0;
   private lastMoveGuardLogAt = 0;
-  // Temporary movement-packet forensics: after every spawn, log the exact
-  // movement packets sent/received for a few seconds so a kick log shows
-  // precisely what crossed the wire (used to hunt "Invalid move player
-  // packet" kicks on Via-translated servers).
-  private moveTraceUntil = 0;
-  private moveTraceCount = 0;
 
   // --- AI brain state ---
   private aiStoredConfig: StoredAiConfig = {};
@@ -1047,8 +1043,6 @@ class BotManager {
         this.touchActivity();
         this.prevHealth = bot.health;
         this.lastGoodPosition = null;
-        this.moveTraceUntil = Date.now() + 8000;
-        this.moveTraceCount = 0;
         this.sanitizeEntityState(bot);
         this.lastPosition = bot.entity?.position?.clone() ?? null;
         this.mcDataCache = null;
@@ -1255,35 +1249,8 @@ class BotManager {
     bot.on("physicsTick", () => this.sanitizeEntityState(bot));
     bot.on("forcedMove", () => this.sanitizeEntityState(bot));
 
-    // Movement-packet forensics (see moveTrace fields): log the raw
-    // server teleports/rotations so a kick can be correlated with the exact
-    // packet mineflayer was answering.
-    const traceClient = bot._client as unknown as {
-      on: (event: string, listener: (packet: Record<string, unknown>) => void) => void;
-    } | null;
-    if (traceClient && typeof traceClient.on === "function") {
-      const traceRecv = (label: string) => (packet: Record<string, unknown>) => {
-        if (Date.now() < this.moveTraceUntil && this.moveTraceCount < 60) {
-          this.moveTraceCount++;
-          try {
-            this.addLog("info", `TRACE RECV ${label} ${JSON.stringify(packet)}`, "connection");
-          } catch { /* never break packet handling */ }
-        }
-      };
-      traceClient.on("position", traceRecv("position"));
-      traceClient.on("player_rotation", traceRecv("player_rotation"));
-    }
-
     bot.on("kicked", (reason) => {
       this.addLog("error", `Kicked from server: ${chatComponentToText(reason)}`, "connection");
-      const e = bot.entity;
-      if (e) {
-        this.addLog(
-          "info",
-          `TRACE state at kick: pos=${e.position} vel=${e.velocity} yaw=${e.yaw} pitch=${e.pitch} onGround=${e.onGround}`,
-          "connection",
-        );
-      }
     });
 
     bot.on("error", (err) => {
@@ -1367,23 +1334,9 @@ class BotManager {
           tickEndLogged = true;
           this.addLog("info", "Client tick-end streaming active (required by 26.3+ servers)", "connection");
         }
-        if (Date.now() < this.moveTraceUntil && this.moveTraceCount < 60) {
-          this.moveTraceCount++;
-          this.addLog("info", "TRACE SEND tick_end {}", "connection");
-        }
       } catch { /* socket closing — never break the movement path */ }
     };
     client.write = (name: string, params: Record<string, unknown>) => {
-      if (
-        (name === "position" || name === "position_look" || name === "look" || name === "flying" || name === "teleport_confirm") &&
-        Date.now() < this.moveTraceUntil &&
-        this.moveTraceCount < 60
-      ) {
-        this.moveTraceCount++;
-        try {
-          this.addLog("info", `TRACE SEND ${name} ${JSON.stringify(params)}`, "connection");
-        } catch { /* tracing must never break the write path */ }
-      }
       const fallbackPos = this.lastGoodPosition;
       const repaired = sanitizeMovePacketParams(name, params, {
         x: fallbackPos?.x ?? 0,
@@ -1409,8 +1362,6 @@ class BotManager {
       }
       return result;
     };
-    this.moveTraceUntil = Date.now() + 15000;
-    this.moveTraceCount = 0;
     this.addLog("info", "Movement-packet guard installed", "connection");
   }
 
@@ -1702,14 +1653,22 @@ class BotManager {
   private startViewer(bot: Bot) {
     if (!this.settings.viewerEnabled || this.viewerRunning) return;
     try {
-      loadViewer()(bot, {
+      const viewerVersion = viewerVersionForBotVersion(bot.version);
+      const viewerBot =
+        viewerVersion && viewerVersion !== bot.version ? withViewerVersion(bot, viewerVersion) : bot;
+      loadViewer()(viewerBot, {
         port: VIEWER_PORT,
         firstPerson: this.settings.viewerFirstPerson,
         viewDistance: 6,
         prefix: "/viewer",
       });
       this.viewerRunning = true;
-      this.addLog("info", `Live view started (${this.settings.viewerFirstPerson ? "first-person" : "orbit"} camera)`);
+      const fallbackNote =
+        viewerBot !== bot ? `; ${bot.version} world rendered with ${viewerVersion} viewer assets` : "";
+      this.addLog(
+        "info",
+        `Live view started (${this.settings.viewerFirstPerson ? "first-person" : "orbit"} camera${fallbackNote})`,
+      );
     } catch (err) {
       this.viewerRunning = false;
       this.addLog("warn", `Could not start live view: ${errText(err)}`);

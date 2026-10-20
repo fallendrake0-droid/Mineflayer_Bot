@@ -343,3 +343,42 @@ export function sanitizeMovePacketParams(
   }
   return repaired;
 }
+
+// ---------------------------------------------------------------------------
+// prismarine-viewer version compatibility
+// ---------------------------------------------------------------------------
+
+/**
+ * prismarine-viewer 1.33 (the latest npm release) only ships browser assets
+ * up to MC 1.21.4; its getVersion() rejects 26.x bot versions entirely,
+ * leaving a blank live view. Upstream added native 26.1 support on GitHub
+ * but has not published it to npm yet. Render 26.x worlds with the newest
+ * bundled (1.21.4) viewer assets instead: chunk JSON cross-loads cleanly
+ * (verified against the bundled worker) and common terrain renders
+ * correctly, though brand-new 26.x blocks may be drawn approximately.
+ */
+export function viewerVersionForBotVersion(version: string | undefined): string | undefined {
+  if (version && /^26\./.test(version)) return "1.21.4";
+  return version;
+}
+
+/**
+ * Return a view of `bot` that reports a different `.version` and delegates
+ * everything else (world, entity, events, assignments) to the real bot.
+ * Used only for the object handed to prismarine-viewer, which reads
+ * `bot.version` when a browser connects; the real bot is never mutated.
+ */
+export function withViewerVersion<T extends object>(bot: T, version: string): T {
+  return new Proxy(bot, {
+    get(target, prop) {
+      if (prop === "version") return version;
+      const value = Reflect.get(target, prop, target) as unknown;
+      return typeof value === "function"
+        ? (value as (...args: unknown[]) => unknown).bind(target)
+        : value;
+    },
+    set(target, prop, value) {
+      return Reflect.set(target, prop, value);
+    },
+  });
+}
