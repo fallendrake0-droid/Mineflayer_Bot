@@ -1340,6 +1340,39 @@ class BotManager {
     } | null;
     if (!client || typeof client.write !== "function") return;
     const originalWrite = client.write.bind(client);
+    // Minecraft 26.3+ servers allow only ONE position-bearing packet per
+    // client tick and reset that budget only when they receive `tick_end`
+    // (ServerboundClientTickEndPacket); a second position packet first is
+    // an instant kick: "Invalid move player packet received". Vanilla
+    // clients have sent tick_end every tick since 1.21.2, but mineflayer
+    // never sends it (PrismarineJS/mineflayer#4189). Appending a tick_end
+    // after every movement packet guarantees the budget is always reset
+    // before the next position packet, whatever its source. Gated on the
+    // negotiated protocol actually having the packet (added in 1.21.2).
+    let tickEndSupported: boolean | null = null;
+    let tickEndLogged = false;
+    const sendTickEnd = () => {
+      if (tickEndSupported === null && bot.version) {
+        try {
+          const data = minecraftData(bot.version);
+          tickEndSupported = Boolean(data?.protocol?.play?.toServer?.types?.packet_tick_end);
+        } catch {
+          tickEndSupported = false;
+        }
+      }
+      if (!tickEndSupported) return;
+      try {
+        originalWrite("tick_end", {});
+        if (!tickEndLogged) {
+          tickEndLogged = true;
+          this.addLog("info", "Client tick-end streaming active (required by 26.3+ servers)", "connection");
+        }
+        if (Date.now() < this.moveTraceUntil && this.moveTraceCount < 60) {
+          this.moveTraceCount++;
+          this.addLog("info", "TRACE SEND tick_end {}", "connection");
+        }
+      } catch { /* socket closing — never break the movement path */ }
+    };
     client.write = (name: string, params: Record<string, unknown>) => {
       if (
         (name === "position" || name === "position_look" || name === "look" || name === "flying" || name === "teleport_confirm") &&
@@ -1370,7 +1403,11 @@ class BotManager {
           );
         }
       }
-      return originalWrite(name, params);
+      const result = originalWrite(name, params);
+      if (name === "position" || name === "position_look" || name === "look" || name === "flying") {
+        sendTickEnd();
+      }
+      return result;
     };
     this.moveTraceUntil = Date.now() + 15000;
     this.moveTraceCount = 0;
