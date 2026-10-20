@@ -323,5 +323,23 @@ export function sanitizeMovePacketParams(
       repaired = true;
     }
   }
+  // A real client only ever sends yaw in [0, 360) and pitch in [-90, 90].
+  // Normalize finite-but-out-of-range angles too — harmless for vanilla
+  // (angles are periodic / clamped server-side), and it closes off another
+  // way a movement packet can look "impossible" to a strict server.
+  if (fields.includes("yaw")) {
+    const yaw = params.yaw as number;
+    if (yaw < 0 || yaw >= 360) {
+      params.yaw = ((yaw % 360) + 360) % 360;
+      repaired = true;
+    }
+  }
+  if (fields.includes("pitch")) {
+    const pitch = params.pitch as number;
+    if (pitch < -90 || pitch > 90) {
+      params.pitch = Math.max(-90, Math.min(90, pitch));
+      repaired = true;
+    }
+  }
   return repaired;
 }
