@@ -243,7 +243,11 @@ export class AiBrain {
   ): Promise<AiChatResult> {
     const startedAt = Date.now();
     const slowNote = setTimeout(() => {
-      this.host.log("AI: thinking… (waiting for the model to reply — local models on CPU can take minutes)");
+      this.host.log(
+        this.client.isLocal
+          ? "AI: thinking… (waiting for the model to reply — local models on CPU can take minutes)"
+          : "AI: thinking… (waiting for the model to reply)",
+      );
     }, 5000);
     const heartbeat = setInterval(() => {
       this.host.log(`AI: still thinking… (${Math.round((Date.now() - startedAt) / 1000)}s)`);

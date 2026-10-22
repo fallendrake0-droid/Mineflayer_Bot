@@ -179,7 +179,7 @@ const AI_SKILLS_FILE =
   process.env["MINECONTROL_AI_SKILLS_FILE"] ??
   path.join(path.dirname(SETTINGS_FILE), "ai-skills.json");
 const AI_DEFAULT_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai";
-const AI_DEFAULT_MODEL = "gemini-2.5-flash";
+const AI_DEFAULT_MODEL = "gemini-3.8-flash";
 
 interface StoredAiConfig {
   apiKey?: string;
@@ -295,6 +295,9 @@ class BotManager {
   private lastDefendAt = 0;
   private lastHostileWarnAt = 0;
   private prevHealth = 20;
+  private deathTimes: number[] = [];
+  private deathLoopWarnedAt = 0;
+  private recentChatTexts: Array<{ text: string; at: number }> = [];
 
   private chatQueue: string[] = [];
   private chatTimer: ReturnType<typeof setInterval> | null = null;
@@ -370,6 +373,23 @@ class BotManager {
     this.logs = [];
     this.broadcast({ type: "logs", data: [] });
     this.addLog("info", "Log cleared from dashboard");
+  }
+
+  /** Remember a player-chat line briefly so the system-message echo of the
+   * same announcement (plugins send "[SimpleTpa] …" AND "<SimpleTpa> …")
+   * can be suppressed in the messagestr handler. Log-only; commands are
+   * unaffected. */
+  private noteChatText(text: string) {
+    const now = Date.now();
+    this.recentChatTexts = [
+      ...this.recentChatTexts.filter((e) => now - e.at < 4000).slice(-29),
+      { text, at: now },
+    ];
+  }
+
+  private isRecentChatText(text: string): boolean {
+    const now = Date.now();
+    return this.recentChatTexts.some((e) => e.text === text && now - e.at < 4000);
   }
 
   // -------------------------------------------------------------------------
@@ -571,6 +591,7 @@ class BotManager {
   private async autopilotLoop(): Promise<void> {
     if (this.aiLoopRunning) return;
     this.aiLoopRunning = true;
+    let consecutiveErrors = 0;
     try {
       while (this.aiAutopilot) {
         if (!this.bot || this.connectionState !== "connected" || this.aiGoalActive) {
@@ -583,6 +604,22 @@ class BotManager {
           break;
         }
         await this.runAiGoalInternal(null, "autopilot");
+        // A misconfigured provider (retired model, dead endpoint, bad key)
+        // fails every cycle identically — stop instead of looping forever.
+        if ((this.aiLastOutcome ?? "").startsWith("error:")) {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3) {
+            this.addLog(
+              "error",
+              `Autopilot paused after ${consecutiveErrors} consecutive AI errors — check the AI configuration, then re-enable autopilot`,
+              "ai",
+            );
+            this.aiAutopilot = false;
+            break;
+          }
+        } else {
+          consecutiveErrors = 0;
+        }
         // Brief breather between self-chosen goals (also bounds API spend).
         for (let i = 0; i < 16 && this.aiAutopilot; i++) await sleep(250);
       }
@@ -1275,6 +1312,7 @@ class BotManager {
     bot.on("chat", (username, message) => {
       if (username === bot.username) return; // our own messages are logged when sent
       this.addLog("info", `<${username}> ${message}`, "chat");
+      this.noteChatText(message.trim());
       this.handleChatCommand(username, message);
     });
 
@@ -1286,7 +1324,12 @@ class BotManager {
       const text = message.trim();
       if (position !== "system" || text.length === 0) return;
       if (/^<[^>]+>/.test(text)) return;
+      // Same announcement already logged via 'chat' (with or without the
+      // "[Plugin] " prefix this system copy carries) — don't double-log.
+      const bare = text.replace(/^\[[^\]]+\]\s*/, "").trim();
+      if (this.isRecentChatText(text) || (bare !== text && bare && this.isRecentChatText(bare))) return;
       this.addLog("info", text, "chat");
+      this.noteChatText(text);
     });
 
     bot.on("health", () => {
@@ -1313,6 +1356,17 @@ class BotManager {
       const where = pos ? ` at ${Math.floor(pos.x)}, ${Math.floor(pos.y)}, ${Math.floor(pos.z)}` : "";
       this.stats.deaths++;
       this.addLog("error", `Bot died${where}! (death #${this.stats.deaths}) Respawning…`, "combat");
+      const now = Date.now();
+      this.deathTimes = [...this.deathTimes.filter((t) => now - t < 300_000), now];
+      if (this.deathTimes.length >= 3 && now - this.deathLoopWarnedAt > 300_000) {
+        this.deathLoopWarnedAt = now;
+        this.addLog(
+          "error",
+          `I've died ${this.deathTimes.length} times in 5 minutes — something is camping my spawn. Please help: make it day, clear the mobs near spawn, or give me gear/food`,
+          "combat",
+        );
+        this.say("Help — I keep dying at spawn! Something is camping me.");
+      }
       this.cancelActiveTask("death");
       this.broadcastStatus();
     });
@@ -2204,14 +2258,30 @@ class BotManager {
         if (bot.health <= 5) {
           this.addLog("error", `Health critical (${Math.ceil(bot.health)} HP) — fleeing from ${targetName}!`, "combat");
           try { bot.pathfinder.stop(); } catch { /* ignore */ }
-          const dx = bot.entity.position.x - current.position.x;
-          const dz = bot.entity.position.z - current.position.z;
-          const len = Math.hypot(dx, dz) || 1;
-          const fleeX = Math.floor(bot.entity.position.x + (dx / len) * 18);
-          const fleeZ = Math.floor(bot.entity.position.z + (dz / len) * 18);
           bot.setControlState("sprint", true);
-          await this.gotoGoal(token, new goals.GoalXZ(fleeX, fleeZ)).catch(() => false);
-          bot.setControlState("sprint", false);
+          try {
+            // One 18-block dash often isn't enough: a pursuing mob (baby
+            // zombies outrun a walking bot) closes back in during the eat
+            // that used to follow. Keep dashing until real distance opens.
+            for (let fleeTry = 0; fleeTry < 3; fleeTry++) {
+              token.throwIfCancelled();
+              const threat = bot.entities[entity.id] ?? current;
+              const dx = bot.entity.position.x - threat.position.x;
+              const dz = bot.entity.position.z - threat.position.z;
+              const len = Math.hypot(dx, dz) || 1;
+              const fleeX = Math.floor(bot.entity.position.x + (dx / len) * 18);
+              const fleeZ = Math.floor(bot.entity.position.z + (dz / len) * 18);
+              await this.gotoGoal(token, new goals.GoalXZ(fleeX, fleeZ)).catch(() => false);
+              token.throwIfCancelled();
+              const fresh = bot.entities[entity.id];
+              if (!fresh || bot.entity.position.distanceTo(fresh.position) > 12) break;
+              if (fleeTry < 2) {
+                this.addLog("warn", `Still being chased by ${targetName} — running further!`, "combat");
+              }
+            }
+          } finally {
+            bot.setControlState("sprint", false);
+          }
           await this.eatBestFood("auto");
           return false;
         }

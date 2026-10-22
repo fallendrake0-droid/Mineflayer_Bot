@@ -730,7 +730,7 @@ components:
           description: OpenAI-compatible API base URL (default is Google Gemini's)
         model:
           type: string
-          description: Model name (e.g. gemini-2.5-flash)
+          description: Model name (e.g. gemini-3.8-flash)
 
     AiPublicConfig:
       type: object

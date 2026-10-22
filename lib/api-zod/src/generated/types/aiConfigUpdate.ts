@@ -13,6 +13,6 @@ export interface AiConfigUpdate {
   apiKey?: string;
   /** OpenAI-compatible API base URL (default is Google Gemini's) */
   baseUrl?: string;
-  /** Model name (e.g. gemini-2.5-flash) */
+  /** Model name (e.g. gemini-3.8-flash) */
   model?: string;
 }

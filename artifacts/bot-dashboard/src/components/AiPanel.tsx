@@ -41,7 +41,7 @@ const PROVIDERS = [
     id: "gemini",
     label: "GEMINI",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
-    model: "gemini-2.5-flash",
+    model: "gemini-3.8-flash",
   },
   {
     id: "ollama",
@@ -250,7 +250,7 @@ export function AiPanel() {
           ) : (
             <Input
               className={`${inputCls} mt-1`}
-              placeholder={local ? "llama3.2:3b" : "gemini-2.5-flash"}
+              placeholder={local ? "llama3.2:3b" : "gemini-3.8-flash"}
               value={model}
               onChange={(e) => setModel(e.target.value)}
             />

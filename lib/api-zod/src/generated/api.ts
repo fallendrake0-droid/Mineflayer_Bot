@@ -468,7 +468,7 @@ export const GetAiConfigResponse = zod.object({
 export const UpdateAiConfigBody = zod.object({
   "apiKey": zod.string().optional(),
   "baseUrl": zod.string().optional().describe('OpenAI-compatible API base URL (default is Google Gemini\'s)'),
-  "model": zod.string().optional().describe('Model name (e.g. gemini-2.5-flash)')
+  "model": zod.string().optional().describe('Model name (e.g. gemini-3.8-flash)')
 }).describe('Partial AI provider config. apiKey is write-only (stored server-side, never returned). Empty string clears a value.')
 
 export const UpdateAiConfigResponse = zod.object({

@@ -179,7 +179,7 @@ export class AiClient {
  * "llama-server reported out-of-memory … attempted to allocate 4685 MB"
  * for an 8B model — retrying just re-attempts the same doomed load.
  */
-function fatalProviderHint(status: number, body: string, cfg: AiConfig): string | null {
+export function fatalProviderHint(status: number, body: string, cfg: AiConfig): string | null {
   if (/out[ _-]?of[ _-]?memory|insufficient memory|failed to allocate/i.test(body)) {
     return (
       `AI model ran out of memory while loading — "${cfg.model}" is too large for this machine's free RAM. ` +
@@ -190,6 +190,15 @@ function fatalProviderHint(status: number, body: string, cfg: AiConfig): string 
     return (
       `AI model "${cfg.model}" is not installed on the local AI server — run: ollama pull ${cfg.model} ` +
       "(or pick an installed model via LOAD MODELS in the AI panel)"
+    );
+  }
+  if (status === 404 && !isLocalAiBaseUrl(cfg.baseUrl)) {
+    // Providers retire/rename models (Gemini dropped gemini-2.5-flash for
+    // new users in 2026) — surface the alternative they name instead of a
+    // bare 404, and don't retry a model that no longer exists.
+    return (
+      `AI model "${cfg.model}" was not found at the provider (HTTP 404) — it may have been retired or renamed; ` +
+      `pick a current model in the AI panel (or check the provider URL). Provider said: ${truncate(body, 220)}`
     );
   }
   return null;
