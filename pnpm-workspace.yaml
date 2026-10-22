@@ -163,8 +163,10 @@ overrides:
 
 # prismarine-viewer 1.33.0 ships browser assets only up to MC 1.21.4; the
 # patch makes it announce 1.21.4 for 26.x bots (live-view fallback) and
-# guards an optional canvas require. NOTE: patchedDependencies/overrides
-# must live in this file — pnpm >= 12 ignores package.json's "pnpm" field,
-# which silently drops the patch on install.
+# guards optional canvas requires. IMPORTANT: patchedDependencies must be
+# declared in BOTH this file and package.json's "pnpm" field (keep in
+# sync!): pnpm >= 12 reads only this file, older pnpm reads only
+# package.json — either way, having it in just one place silently drops
+# the patch for the other generation (bit us in the wild, 2026-10-22).
 patchedDependencies:
   prismarine-viewer@1.33.0: patches/prismarine-viewer@1.33.0.patch
