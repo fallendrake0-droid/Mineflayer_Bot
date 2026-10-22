@@ -87,13 +87,46 @@ function normalizePlan(raw: Record<string, unknown>): AiPlan | null {
   };
 }
 
-function buildSystemPrompt(skillCatalog: Array<{ name: string; description: string }>): string {
+export function buildSystemPrompt(
+  skillCatalog: Array<{ name: string; description: string }>,
+  compact = false,
+): string {
   const resources = Object.keys(RESOURCES).join(", ");
   const trees = Object.keys(TREE_TYPES).join(", ");
   const skills =
     skillCatalog.length > 0
       ? skillCatalog.map((s) => `- ${s.name}: ${s.description}`).join("\n")
       : "(none yet — you can create some with newSkill)";
+
+  // Local models on weak CPUs (Chromebook-class) pay for every prompt
+  // token twice over: slow prefill (a ~1.7k-token system prompt can take
+  // a minute before the first generated word) and a bigger KV cache in
+  // RAM. They also follow short, dense instructions better than a long
+  // manual. Same JSON contract and action set, ~half the tokens.
+  if (compact) {
+    return `You are the brain of a Minecraft Java bot on a survival server. You never touch the game directly: you reply with ONE JSON plan, the bot executes it and reports back with fresh state.
+
+REPLY WITH ONLY THIS JSON (nothing else, no markdown fences):
+{
+  "reasoning": "one short sentence: what and why",
+  "say": "optional short chat message (max 200 chars)",
+  "steps": [ { "action": "...", "args": { } } ],
+  "newSkill": { "name": "snake_case", "description": "one line", "code": "..." },
+  "done": false
+}
+done=true with no steps = goal achieved or impossible. Max ${MAX_STEPS_PER_ROUND} steps.
+
+ACTIONS: say{message} · goto{x,y?,z} · come{player} · follow{player} · mine{resource,count} · chop{treeType,count} · killMobs{} · attack{target} · guard{} · wander{} · eat{} · sleep{} · build{size} · climb{blocks} · collect{} · deposit{} · giveTo{player} · dropItem{item,count} · equip{item} · pullLever{} · wait{seconds} · runSkill{name,args}
+mine resources: ${resources} (needs a suitable pickaxe). chop trees: ${trees}, or "any". build size 3-9 needs building blocks in inventory. follow/guard/wander are ongoing — make them the last step.
+
+SAVED SKILLS:
+${skills}
+
+NEW SKILLS: if the actions can't do it, add ONE newSkill with JavaScript (top-level await is fine; it runs immediately; errors come back to you — resend fixed code with the SAME name). Only an "api" object exists: say(m), log(m), sleep(ms up to 30000), checkpoint() (call in EVERY loop), pos(), health(), food(), heldItem(), inventory(), blockAt(x,y,z), findBlocks(names,dist?,count?), entities(dist?), playerPos(name), goto(x,y,z,range?), dig(x,y,z), collect(r?), place(item,x,y,z), equip(item,dest?), toss(item,count?), eat(), attackNearest(d?), lookAt(x,y,z), timeOfDay(), args. sleep/goto/dig/collect/place/equip/toss/eat/attackNearest/lookAt must be awaited. NO require/import/process/fetch/eval — blocked. Max runtime 3 min. Return a short string.
+Example: const logs = api.findBlocks(["oak_log"], 32, 6); if (!logs.length) return "no trees nearby"; for (const b of logs) { api.checkpoint(); await api.dig(b.x, b.y, b.z); } return "gathered wood";
+
+RULES: small verifiable steps; modest counts (mine 16, not 256); eat when food is low; avoid fights at low health; seek shelter/bed at night if exposed; if a step fails twice the same way, change approach or write a skill; if impossible, say why and set done=true. Prefer built-in actions and saved skills over new code. For goal "(autopilot)": play like a survival player — food, wood, tools (wood, then stone, then iron), shelter before night, help nearby players. Don't grief or steal; greet players.`;
+  }
 
   return `You are the brain of a Minecraft Java Edition bot playing on a survival server. You think, talk and act like a helpful human player. You never control the game directly — you reply with ONE JSON plan at a time and the bot executes it, then reports back with fresh state.
 
@@ -188,7 +221,7 @@ export class AiBrain {
     history: string[],
     signal?: AbortSignal,
   ): Promise<AiPlan> {
-    const system = buildSystemPrompt(this.skills.catalog());
+    const system = buildSystemPrompt(this.skills.catalog(), this.client.isLocal);
     const user = [
       `GOAL: ${goal}`,
       "",
@@ -253,7 +286,14 @@ export class AiBrain {
       this.host.log(`AI: still thinking… (${Math.round((Date.now() - startedAt) / 1000)}s)`);
     }, 30_000);
     try {
-      const result = await this.client.chat(messages, { temperature: 0.4, maxTokens: 2000, signal });
+      // Local models: cap output harder — a rambling 2000-token reply is
+      // minutes of CPU generation; valid plans (and modest skills) fit
+      // comfortably in ~1000 tokens.
+      const result = await this.client.chat(messages, {
+        temperature: 0.4,
+        maxTokens: this.client.isLocal ? 1024 : 2000,
+        signal,
+      });
       const secs = Math.round((Date.now() - startedAt) / 1000);
       if (secs >= 20) this.host.log(`AI: model replied after ${secs}s`);
       return result;

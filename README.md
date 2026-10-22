@@ -63,6 +63,12 @@ PORT=5173 BASE_PATH=/ API_PORT=5000 pnpm --filter @workspace/bot-dashboard run d
 Then open http://localhost:5173, enter your Minecraft server's host/port, a
 bot username, your own in-game name (for chat commands), and hit **Connect**.
 
+**Low-RAM / Chromebook one-terminal mode:** after a full
+`PORT=5173 BASE_PATH=/ pnpm run build`, the API also serves the built
+dashboard itself — start *only* Terminal 1 and open
+**http://localhost:5000**. No Vite dev server, which frees a few hundred
+MB of RAM (very noticeable next to a local Ollama model).
+
 > [!NOTE]
 > The bot uses **offline-mode authentication** (a plain username), so the
 > server must be offline-mode / local / LAN (`online-mode=false` in

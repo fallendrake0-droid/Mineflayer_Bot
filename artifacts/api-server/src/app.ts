@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
@@ -64,6 +66,28 @@ app.use("/api", router);
 app.use("/api", (_req, res) => {
   res.status(404).json({ error: "Not found" });
 });
+
+// Serve the built dashboard (if present) so the whole app can run as ONE
+// process: `pnpm run build` once, then just the API on :5000 serves the UI
+// too — no Vite dev server eating RAM (matters on Chromebooks). Dev setups
+// using Vite on :5173 are unaffected (this only answers on the API port).
+const dashboardDist = [
+  process.env["MINECONTROL_DASHBOARD_DIST"],
+  path.resolve(process.cwd(), "../bot-dashboard/dist/public"),
+  path.resolve(process.cwd(), "../bot-dashboard/dist"),
+  path.resolve(process.cwd(), "artifacts/bot-dashboard/dist/public"),
+  path.resolve(process.cwd(), "artifacts/bot-dashboard/dist"),
+]
+  .filter((d): d is string => !!d)
+  .find((d) => fs.existsSync(path.join(d, "index.html")));
+if (dashboardDist) {
+  const indexHtml = path.join(dashboardDist, "index.html");
+  app.use(express.static(dashboardDist));
+  app.get(/^\/(?!api\/|ws$|viewer(\/|$|\?)).*/, (_req, res) => {
+    res.sendFile(indexHtml);
+  });
+  logger.info({ dir: dashboardDist }, "Serving built dashboard on this port (one-process mode)");
+}
 
 // JSON error responses (instead of Express' default HTML + stack page).
 // body-parser failures carry a 4xx `status`; everything else is a 500 with
