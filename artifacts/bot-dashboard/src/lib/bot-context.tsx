@@ -3,6 +3,7 @@ import React, {
   useCallback,
   useContext,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -13,9 +14,16 @@ import type {
   LogEntry,
 } from "@workspace/api-client-react";
 
+/** LogEntry plus a client-side stable id (the API has no log ids; React
+ * needs durable keys as the list is filtered/sliced). */
+export type UiLogEntry = LogEntry & { uiId: number };
+
+let nextLogUiId = 1;
+const withUiId = (entry: LogEntry): UiLogEntry => ({ ...entry, uiId: nextLogUiId++ });
+
 interface BotContextValue {
   status: BotStatus | null;
-  logs: LogEntry[];
+  logs: UiLogEntry[];
   inventory: BotInventoryResponse | null;
   settings: BotSettings | null;
   /** True when the dashboard's own WebSocket to the API server is up. */
@@ -46,7 +54,7 @@ function wsUrl(): string {
  */
 export function BotProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<BotStatus | null>(null);
-  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [logs, setLogs] = useState<UiLogEntry[]>([]);
   const [inventory, setInventory] = useState<BotInventoryResponse | null>(null);
   const [settings, setSettings] = useState<BotSettings | null>(null);
   const [wsConnected, setWsConnected] = useState(false);
@@ -94,12 +102,12 @@ export function BotProvider({ children }: { children: React.ReactNode }) {
               break;
             case "log":
               setLogs((prev) => {
-                const next = [...prev, message.data as LogEntry];
+                const next = [...prev, withUiId(message.data as LogEntry)];
                 return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
               });
               break;
             case "logs":
-              setLogs((message.data as LogEntry[]).slice(-MAX_LOGS));
+              setLogs((message.data as LogEntry[]).map(withUiId).slice(-MAX_LOGS));
               break;
             case "inventory":
               setInventory(message.data as BotInventoryResponse);
@@ -130,13 +138,12 @@ export function BotProvider({ children }: { children: React.ReactNode }) {
     setSettings(next);
   }, []);
 
-  return (
-    <BotContext.Provider
-      value={{ status, logs, inventory, settings, wsConnected, setSettingsLocal }}
-    >
-      {children}
-    </BotContext.Provider>
+  const value = useMemo<BotContextValue>(
+    () => ({ status, logs, inventory, settings, wsConnected, setSettingsLocal }),
+    [status, logs, inventory, settings, wsConnected, setSettingsLocal],
   );
+
+  return <BotContext.Provider value={value}>{children}</BotContext.Provider>;
 }
 
 export function useBot(): BotContextValue {

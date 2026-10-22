@@ -9,7 +9,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { useBot } from "@/lib/bot-context";
+import { useBot, type UiLogEntry } from "@/lib/bot-context";
 import {
   useClearBotLogs,
   useExecuteBotCommand,
@@ -28,6 +28,21 @@ const LEVELS: Array<{ id: LogEntry["level"]; label: string; cls: string; activeC
 ];
 
 const LEVEL_COLOR = Object.fromEntries(LEVELS.map((l) => [l.id, l.cls]));
+
+/** Memoized so the 4×/s status broadcasts don't re-render 300 rows. */
+const LogRow = React.memo(function LogRow({ log }: { log: UiLogEntry }) {
+  return (
+    <div className="flex gap-2.5 hover:bg-white/5 px-1 py-px rounded transition-colors break-words">
+      <span className="text-muted-foreground shrink-0 opacity-50">
+        {new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}
+      </span>
+      <span className={`shrink-0 w-9 font-bold ${LEVEL_COLOR[log.level] ?? ""}`}>
+        {log.level === "success" ? "OK" : log.level.toUpperCase()}
+      </span>
+      <span className="text-foreground/90">{log.message}</span>
+    </div>
+  );
+});
 
 export function LogPanel({ heightClass = "h-full" }: { heightClass?: string }) {
   const { logs, status } = useBot();
@@ -214,16 +229,8 @@ export function LogPanel({ heightClass = "h-full" }: { heightClass?: string }) {
               {logs.length === 0 ? "Awaiting log stream…" : "No entries match the current filters."}
             </div>
           )}
-          {displayed.map((log, i) => (
-            <div key={i} className="flex gap-2.5 hover:bg-white/5 px-1 py-px rounded transition-colors break-words">
-              <span className="text-muted-foreground shrink-0 opacity-50">
-                {new Date(log.timestamp).toLocaleTimeString([], { hour12: false })}
-              </span>
-              <span className={`shrink-0 w-9 font-bold ${LEVEL_COLOR[log.level] ?? ""}`}>
-                {log.level === "success" ? "OK" : log.level.toUpperCase()}
-              </span>
-              <span className="text-foreground/90">{log.message}</span>
-            </div>
+          {displayed.map((log) => (
+            <LogRow key={log.uiId} log={log} />
           ))}
         </div>
       </CardContent>

@@ -78,7 +78,16 @@ export function ControlPad() {
   }, [pressed, sendState]);
 
   // Safety: release everything when the pad loses focus / unmounts.
-  useEffect(() => () => releaseAll(), [releaseAll]);
+  useEffect(
+    () => () => {
+      releaseAll();
+      if (lookIntervalRef.current) {
+        clearInterval(lookIntervalRef.current);
+        lookIntervalRef.current = null;
+      }
+    },
+    [releaseAll],
+  );
 
   const startLook = (yawDelta: number, pitchDelta: number) => {
     const send = () => sendBotControl({ yawDelta, pitchDelta }).catch(() => {});

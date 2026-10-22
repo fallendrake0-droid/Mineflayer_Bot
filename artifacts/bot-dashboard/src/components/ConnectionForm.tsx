@@ -42,10 +42,34 @@ type ConnectValues = z.infer<typeof connectSchema>;
 
 const VERSION_SUGGESTIONS = [
   "auto",
-  "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1",
+  "26.3", "26.2", "26.1",
+  "1.21.5", "1.21.4", "1.21.1", "1.20.6", "1.20.4", "1.20.1",
   "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5",
   "1.12.2", "1.8.8",
 ];
+
+/**
+ * Users habitually paste the full server address ("play.example.com:25565",
+ * sometimes with a scheme) into HOST — split the port out instead of
+ * failing the connect with a DNS error for "example.com:25565".
+ */
+function parseHostInput(rawHost: string, currentPort: number): { host: string; port: number } {
+  let host = rawHost
+    .trim()
+    .replace(/^[a-z][a-z0-9+.-]*:\/\//i, "")
+    .replace(/\/.*$/, "");
+  let port = currentPort;
+  const m = /^(.+):(\d{1,5})$/.exec(host);
+  if (m) {
+    const parsed = Number(m[2]);
+    if (parsed >= 1 && parsed <= 65535) {
+      host = m[1];
+      port = parsed;
+    }
+  }
+  host = host.replace(/^\[(.*)\]$/, "$1");
+  return { host, port };
+}
 
 export function ConnectionForm() {
   const { toast } = useToast();
@@ -67,9 +91,12 @@ export function ConnectionForm() {
   });
 
   const doConnect = (values: ConnectValues) => {
+    const { host, port } = parseHostInput(values.host, values.port);
+    if (host !== values.host.trim()) form.setValue("host", host);
+    if (port !== values.port) form.setValue("port", port);
     const payload = {
-      host: values.host.trim(),
-      port: values.port,
+      host,
+      port,
       username: values.username.trim(),
       version: values.version?.trim() || "auto",
       owner: values.owner?.trim() || undefined,
