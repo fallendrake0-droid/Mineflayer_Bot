@@ -1,0 +1,104 @@
+import { Router } from "express";
+import { botManager } from "../lib/bot";
+import { aiService } from "../lib/ai";
+
+const router = Router();
+
+router.get("/ai/providers", (_req, res) => {
+  res.json({ providers: aiService.getProviders() });
+});
+
+router.get("/ai/status", (_req, res) => {
+  res.json({
+    providers: aiService.getProviders(),
+    defaultProvider: (process.env["AI_PROVIDER"] ?? "local").toLowerCase(),
+    ready: true,
+  });
+});
+
+router.post("/ai/chat", async (req, res) => {
+  const prompt = typeof req.body?.prompt === "string" ? req.body.prompt : "";
+  if (!prompt.trim()) {
+    res.status(400).json({ error: "prompt is required" });
+    return;
+  }
+
+  try {
+    const result = await aiService.chat(prompt, {
+      provider: req.body?.provider,
+      model: req.body?.model,
+      temperature: req.body?.temperature,
+      maxTokens: req.body?.maxTokens,
+      context: {
+        bot: botManager.getContextSnapshot(),
+        request: req.body?.context ?? {},
+      },
+    });
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.post("/ai/plan", async (req, res) => {
+  const objective = typeof req.body?.objective === "string" ? req.body.objective : "";
+  if (!objective.trim()) {
+    res.status(400).json({ error: "objective is required" });
+    return;
+  }
+
+  try {
+    const result = await aiService.plan(objective, {
+      provider: req.body?.provider,
+      model: req.body?.model,
+      temperature: req.body?.temperature,
+      maxTokens: req.body?.maxTokens,
+      context: {
+        bot: botManager.getContextSnapshot(),
+        request: req.body?.context ?? {},
+      },
+    });
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.post("/ai/decision", async (req, res) => {
+  try {
+    const result = await aiService.decide(
+      {
+        bot: botManager.getContextSnapshot(),
+        request: req.body ?? {},
+      },
+      {
+        provider: req.body?.provider,
+        model: req.body?.model,
+      }
+    );
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+router.post("/ai/summary", async (req, res) => {
+  try {
+    const result = await aiService.summarize(
+      {
+        bot: botManager.getContextSnapshot(),
+        request: req.body ?? {},
+      },
+      {
+        provider: req.body?.provider,
+        model: req.body?.model,
+      }
+    );
+    res.json(result);
+  } catch (err: unknown) {
+    res.status(500).json({ error: err instanceof Error ? err.message : String(err) });
+  }
+});
+
+export default router;
+
