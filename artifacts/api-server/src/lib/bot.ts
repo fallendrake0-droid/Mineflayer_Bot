@@ -20,6 +20,7 @@ import {
   sanitizeMovePacketParams,
   viewerVersionForBotVersion,
   withViewerVersion,
+  createCheckpointGuard,
 } from "./bot-utils";
 import { AiClient, type AiConfig } from "./ai-client";
 import { AiBrain, type BrainHost, type BrainStepResult } from "./ai-brain";
@@ -98,6 +99,53 @@ export interface BotSettings {
   viewerFirstPerson: boolean;
   aiEnabled: boolean;
   aiChatEnabled: boolean;
+}
+
+/**
+ * Rebuild a settings object field-by-field from untrusted JSON (the file
+ * on disk may be hand-edited, truncated, or from an older version). Wrong
+ * types fall back to defaults instead of poisoning runtime behaviour
+ * (e.g. autoEatThreshold: "lots" would silently disable auto-eat).
+ */
+export function sanitizeSettings(raw: unknown): BotSettings {
+  const src =
+    raw && typeof raw === "object" && !Array.isArray(raw)
+      ? (raw as Record<string, unknown>)
+      : {};
+  const bool = (key: keyof BotSettings): boolean =>
+    typeof src[key] === "boolean" ? (src[key] as boolean) : (DEFAULT_SETTINGS[key] as boolean);
+  const num = (key: "autoEatThreshold" | "maxReconnectAttempts", min: number, max: number): number => {
+    const v = src[key];
+    return typeof v === "number" && Number.isFinite(v)
+      ? clamp(Math.round(v), min, max)
+      : DEFAULT_SETTINGS[key];
+  };
+  const ownersRaw = src["chatCommandOwners"];
+  const chatCommandOwners = Array.isArray(ownersRaw)
+    ? [
+        ...new Set(
+          ownersRaw
+            .map((o) => String(o).trim())
+            .filter((o) => o.length > 0 && o.length <= 32),
+        ),
+      ]
+    : [...DEFAULT_SETTINGS.chatCommandOwners];
+  return {
+    autoEat: bool("autoEat"),
+    autoEatThreshold: num("autoEatThreshold", 0, 20),
+    autoEquipArmor: bool("autoEquipArmor"),
+    autoReconnect: bool("autoReconnect"),
+    maxReconnectAttempts: num("maxReconnectAttempts", 0, 1000),
+    antiAfk: bool("antiAfk"),
+    autoDefend: bool("autoDefend"),
+    autoCollectDrops: bool("autoCollectDrops"),
+    chatCommandsEnabled: bool("chatCommandsEnabled"),
+    chatCommandOwners,
+    viewerEnabled: bool("viewerEnabled"),
+    viewerFirstPerson: bool("viewerFirstPerson"),
+    aiEnabled: bool("aiEnabled"),
+    aiChatEnabled: bool("aiChatEnabled"),
+  };
 }
 
 const DEFAULT_SETTINGS: BotSettings = {
@@ -273,7 +321,20 @@ class BotManager {
     if (!this.wss) return;
     const msg = JSON.stringify(payload);
     this.wss.clients.forEach((client) => {
-      if (client.readyState === client.OPEN) client.send(msg);
+      if (client.readyState !== client.OPEN) return;
+      // Backpressure: a stalled dashboard socket must not accumulate an
+      // unbounded send buffer. Snapshots are idempotent, so dropping
+      // frames for a lagging client is safe; a hopeless one is dropped.
+      if (client.bufferedAmount > 4_000_000) {
+        try {
+          client.terminate();
+        } catch {
+          // ignore
+        }
+        return;
+      }
+      if (client.bufferedAmount > 1_000_000) return;
+      client.send(msg);
     });
   }
 
@@ -350,8 +411,7 @@ class BotManager {
   private loadSettings() {
     try {
       const raw = fs.readFileSync(SETTINGS_FILE, "utf8");
-      const parsed = JSON.parse(raw) as Partial<BotSettings>;
-      this.settings = { ...DEFAULT_SETTINGS, ...parsed };
+      this.settings = sanitizeSettings(JSON.parse(raw) as unknown);
     } catch {
       // First run (or unreadable file) — defaults are fine.
     }
@@ -848,6 +908,7 @@ class BotManager {
   /** Frozen helper API handed to sandboxed AI skills. */
   private createSkillApi(token: TaskToken, args: Record<string, unknown>): Record<string, unknown> {
     const bot = this.bot!;
+    const checkpointGuard = createCheckpointGuard();
     const floor3 = (v: Vec3) => ({ x: Math.floor(v.x), y: Math.floor(v.y), z: Math.floor(v.z) });
     const num = (v: unknown, fallback = 0): number => {
       const n = Number(v);
@@ -861,7 +922,10 @@ class BotManager {
       say: (m: unknown) => this.say(String(m).slice(0, 240)),
       log: (m: unknown) => this.addLog("info", String(m).slice(0, 300), "ai"),
       sleep: (ms: unknown) => token.sleep(clamp(num(ms), 0, 30_000)),
-      checkpoint: () => token.throwIfCancelled(),
+      checkpoint: () => {
+        token.throwIfCancelled();
+        checkpointGuard();
+      },
       pos: () => floor3(bot.entity.position),
       health: () => bot.health,
       food: () => bot.food,
@@ -1658,6 +1722,9 @@ class BotManager {
   say(message: string) {
     const text = message.trim();
     if (!text) return;
+    // The queue drains one message per 550ms; cap it so a chatty AI skill
+    // can't build up minutes of backlog (or unbounded memory).
+    if (this.chatQueue.length >= 25) return;
     this.chatQueue.push(text.slice(0, 256));
     this.touchActivity();
   }
@@ -1986,13 +2053,14 @@ class BotManager {
     return foods[0] ?? null;
   }
 
-  private nearestHostile(maxDistance: number): McEntity | null {
+  private nearestHostile(maxDistance: number, exclude?: ReadonlySet<number>): McEntity | null {
     const bot = this.bot!;
     const origin = bot.entity.position;
     let best: McEntity | null = null;
     let bestDist = Infinity;
     for (const e of Object.values(bot.entities)) {
       if (!e.position || !isHostileMob(e.name)) continue;
+      if (exclude?.has(e.id)) continue;
       const d = e.position.distanceTo(origin);
       if (d < bestDist && d <= maxDistance) {
         bestDist = d;
@@ -2271,13 +2339,17 @@ class BotManager {
     await this.runTask("killMobs", "killing mobs", async (token) => {
       this.addLog("info", "Hunting hostile mobs within 24 blocks…", "combat");
       let kills = 0;
+      // Mobs we failed to kill (unreachable, fled from, timed out) are
+      // excluded — otherwise this loop re-engages the same mob forever.
+      const gaveUp = new Set<number>();
       while (true) {
         token.throwIfCancelled();
-        const mob = this.nearestHostile(24);
+        const mob = this.nearestHostile(24, gaveUp);
         if (!mob) break;
         this.setTaskDetail(`fighting ${mob.name ?? "mob"} (${kills} killed)`);
         const killed = await this.combatEntity(token, mob);
         if (killed) kills++;
+        else gaveUp.add(mob.id);
         if (this.settings.autoCollectDrops) {
           await this.collectNearbyItems(token, 8, 10);
         }

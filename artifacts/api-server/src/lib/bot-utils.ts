@@ -121,9 +121,38 @@ export class TaskToken {
   }
 }
 
-/** Mineflayer yaw (radians, 0 = north, increasing turns left/west) → compass point. */
+/**
+ * Rate limiter for sandboxed-skill `api.checkpoint()` calls. A purely
+ * synchronous spin loop after a skill's first `await` escapes the node:vm
+ * script timeout and would freeze the whole API process; checkpoint() is
+ * the one call skills are taught to make every loop iteration, so tripping
+ * on an absurd call rate converts a process-freeze into a clean skill
+ * error the brain can react to. Returns the guarded checkpoint function.
+ */
+export function createCheckpointGuard(
+  maxCallsPerWindow = 20_000,
+  windowMs = 2_000,
+): () => void {
+  let windowStart = Date.now();
+  let windowCount = 0;
+  return () => {
+    const now = Date.now();
+    if (now - windowStart > windowMs) {
+      windowStart = now;
+      windowCount = 0;
+    }
+    if (++windowCount > maxCallsPerWindow) {
+      throw new Error(
+        `busy loop detected (checkpoint called >${maxCallsPerWindow} times in ${windowMs}ms without awaiting) — await an api helper or api.sleep in every loop iteration`,
+      );
+    }
+  };
+}
+
+/** Mineflayer yaw (radians, 0 = east, increasing counter-clockwise — see
+ * bot.look in mineflayer's docs) → compass point. */
 export function compassFromYaw(yaw: number): string {
-  const points = ["N", "NW", "W", "SW", "S", "SE", "E", "NE"];
+  const points = ["E", "NE", "N", "NW", "W", "SW", "S", "SE"];
   const deg = ((yaw * 180) / Math.PI % 360 + 360) % 360;
   return points[Math.round(deg / 45) % 8];
 }

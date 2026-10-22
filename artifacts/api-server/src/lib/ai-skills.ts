@@ -88,9 +88,28 @@ export class SkillLibrary {
   }
 
   private load() {
+    let raw: string;
     try {
-      const raw = fs.readFileSync(this.file, "utf8");
-      const parsed = JSON.parse(raw) as unknown;
+      raw = fs.readFileSync(this.file, "utf8");
+    } catch {
+      return; // First run — no library file yet.
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw) as unknown;
+    } catch {
+      // A corrupt/hand-edited file must not be silently overwritten by the
+      // next save() — preserve it for inspection and start empty.
+      const backup = `${this.file}.corrupt-${Date.now()}`;
+      try {
+        fs.renameSync(this.file, backup);
+        logger.warn({ backup }, "AI skill library file was corrupt — backed up, starting with an empty library");
+      } catch {
+        // best effort
+      }
+      return;
+    }
+    try {
       if (!Array.isArray(parsed)) return;
       for (const entry of parsed) {
         const s = entry as Partial<AiSkill>;
@@ -279,13 +298,18 @@ export async function runSkillInSandbox(
     return { ok: false, error: errMessage(winner.err) };
   }
   const value = winner.value;
-  return {
-    ok: true,
-    result:
-      typeof value === "string"
-        ? value.slice(0, 300)
-        : value === undefined || value === null
-          ? "done"
-          : JSON.stringify(value).slice(0, 300),
-  };
+  let result: string;
+  if (typeof value === "string") {
+    result = value.slice(0, 300);
+  } else if (value === undefined || value === null) {
+    result = "done";
+  } else {
+    try {
+      result = JSON.stringify(value).slice(0, 300);
+    } catch {
+      // Circular/exotic return values — degrade gracefully, never throw.
+      result = String(value).slice(0, 300);
+    }
+  }
+  return { ok: true, result };
 }
