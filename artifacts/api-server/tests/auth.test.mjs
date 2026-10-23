@@ -55,7 +55,7 @@ test("token validation accepts the exact configured token only", () => {
   process.env["DASHBOARD_TOKEN"] = "ci-dashboard-token-not-for-production";
   assert.equal(isValidDashboardToken("ci-dashboard-token-not-for-production"), true);
   assert.equal(isValidDashboardToken("wrong-secret"), false);
-  assert.equal(isValidDashboardToken(" test-secret "), false);
+  assert.equal(isValidDashboardToken(" ci-dashboard-token-not-for-production "), false);
 });
 
 test("auth middleware returns 503 when not configured", () => {
@@ -69,7 +69,7 @@ test("auth middleware returns 503 when not configured", () => {
 
   assert.equal(response.statusCode, 503);
   assert.equal(calledNext, false);
-  assert.match(response.body.error, /not configured/i);
+  assert.match(response.body.error, /DASHBOARD_TOKEN/i);
 });
 
 test("auth middleware rejects missing and incorrect bearer tokens", () => {
