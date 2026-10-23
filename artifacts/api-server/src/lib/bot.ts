@@ -751,7 +751,11 @@ class BotManager {
       throw new Error(`Target "${targetName}" not found nearby`);
     }
 
-    const mcData = require("minecraft-data")(this.bot.version);
+    this.stopAllTasks();
+    const taskId = this.taskGeneration;
+    this.currentTask = `hitting ${targetName}`;
+    this.broadcastStatus();
+
     const movements = new Movements(this.bot);
     this.bot.pathfinder.setMovements(movements);
 
@@ -759,10 +763,17 @@ class BotManager {
       await this.bot.pathfinder.goto(
         new goals.GoalNear(entity.position.x, entity.position.y, entity.position.z, 2)
       );
-      this.bot.attack(entity);
+      if (!this.isTaskCurrent(taskId)) return;
+      this.bot!.attack(entity);
       this.addLog("success", `Hit ${targetName}`);
     } catch (err: unknown) {
+      if (!this.isTaskCurrent(taskId)) return;
       throw new Error(`Could not reach ${targetName}: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      if (this.isTaskCurrent(taskId)) {
+        this.currentTask = "idle";
+        this.broadcastStatus();
+      }
     }
   }
 
@@ -787,15 +798,32 @@ class BotManager {
       throw new Error("No lever or button found within 16 blocks");
     }
 
+    this.stopAllTasks();
+    const taskId = this.taskGeneration;
+    this.currentTask = "activating lever/button";
+    this.broadcastStatus();
+
     const movements = new Movements(this.bot);
     this.bot.pathfinder.setMovements(movements);
 
     try {
       await this.bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2));
-      await this.bot.activateBlock(block);
-      this.addLog("success", `Pulled lever/button at ${block.position.x},${block.position.y},${block.position.z}`);
+      if (!this.isTaskCurrent(taskId)) return;
+      const currentBlock = this.bot!.blockAt(block.position);
+      if (!currentBlock || currentBlock.type !== block.type) {
+        throw new Error("The lever or button is no longer present");
+      }
+      await this.bot!.activateBlock(currentBlock);
+      if (!this.isTaskCurrent(taskId)) return;
+      this.addLog("success", `Activated lever/button at ${block.position.x},${block.position.y},${block.position.z}`);
     } catch (err: unknown) {
-      throw new Error(`Could not pull lever: ${err instanceof Error ? err.message : String(err)}`);
+      if (!this.isTaskCurrent(taskId)) return;
+      throw new Error(`Could not activate lever/button: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      if (this.isTaskCurrent(taskId)) {
+        this.currentTask = "idle";
+        this.broadcastStatus();
+      }
     }
   }
 
