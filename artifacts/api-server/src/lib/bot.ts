@@ -459,9 +459,9 @@ class BotManager {
       }
 
       this.addLog("info", `Attacking ${mob.name ?? "mob"}...`);
-      const mcData = require("minecraft-data")(this.bot.version);
-      const movements = new Movements(this.bot);
-      this.bot.pathfinder.setMovements(movements);
+      const mcData = require("minecraft-data")(this.bot!.version);
+      const movements = new Movements(this.bot!);
+      this.bot!.pathfinder.setMovements(movements);
 
       try {
         await this.bot.pathfinder.goto(new goals.GoalNear(mob.position.x, mob.position.y, mob.position.z, 2));
@@ -495,10 +495,10 @@ class BotManager {
     this.addLog("info", `Starting to mine ${resource}...`);
     this.broadcastStatus();
 
-    const mcData = require("minecraft-data")(this.bot.version);
-    const movements = new Movements(this.bot);
+    const mcData = require("minecraft-data")(this.bot!.version);
+    const movements = new Movements(this.bot!);
     movements.digCost = 1;
-    this.bot.pathfinder.setMovements(movements);
+    this.bot!.pathfinder.setMovements(movements);
 
     const mineLoop = async () => {
       if (
@@ -579,7 +579,7 @@ class BotManager {
       "witch", "pillager", "drowned", "husk", "stray",
     ];
 
-    const mob = Object.values(this.bot.entities).find((e) => {
+    const mob = Object.values(this.bot!.entities).find((e) => {
       return (
         e.type === "mob" &&
         hostile.some((h) => e.name?.toLowerCase().includes(h)) &&
@@ -614,9 +614,9 @@ class BotManager {
     if (targetName) {
       const target = this.bot.players[targetName]?.entity;
       if (target) {
-        const mcData = require("minecraft-data")(this.bot.version);
-        const movements = new Movements(this.bot);
-        this.bot.pathfinder.setMovements(movements);
+        const mcData = require("minecraft-data")(this.bot!.version);
+        const movements = new Movements(this.bot!);
+        this.bot!.pathfinder.setMovements(movements);
         try {
           await this.bot.pathfinder.goto(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 2));
         } catch (_) {
@@ -709,14 +709,14 @@ class BotManager {
     this.broadcastStatus();
 
     const targetY = this.bot.entity.position.y + 10;
-    const mcData = require("minecraft-data")(this.bot.version);
-    const movements = new Movements(this.bot);
+    const mcData = require("minecraft-data")(this.bot!.version);
+    const movements = new Movements(this.bot!);
     movements.allowParkour = true;
     movements.allowSprinting = true;
-    this.bot.pathfinder.setMovements(movements);
+    this.bot!.pathfinder.setMovements(movements);
 
     try {
-      const pos = this.bot.entity.position;
+      const pos = this.bot!.entity.position;
       await this.bot.pathfinder.goto(
         new goals.GoalBlock(Math.floor(pos.x), Math.floor(targetY), Math.floor(pos.z))
       );
@@ -756,8 +756,8 @@ class BotManager {
     this.currentTask = `hitting ${targetName}`;
     this.broadcastStatus();
 
-    const movements = new Movements(this.bot);
-    this.bot.pathfinder.setMovements(movements);
+    const movements = new Movements(this.bot!);
+    this.bot!.pathfinder.setMovements(movements);
 
     try {
       await this.bot.pathfinder.goto(
@@ -782,14 +782,14 @@ class BotManager {
 
     this.addLog("info", "Looking for lever or button...");
 
-    const mcData = require("minecraft-data")(this.bot.version);
+    const mcData = require("minecraft-data")(this.bot!.version);
     const leverIds = [
       mcData.blocksByName["lever"]?.id,
       mcData.blocksByName["stone_button"]?.id,
       mcData.blocksByName["oak_button"]?.id,
     ].filter((id): id is number => id !== undefined);
 
-    const block = this.bot.findBlock({
+    const block = this.bot!.findBlock({
       matching: leverIds,
       maxDistance: 16,
     });
@@ -803,8 +803,8 @@ class BotManager {
     this.currentTask = "activating lever/button";
     this.broadcastStatus();
 
-    const movements = new Movements(this.bot);
-    this.bot.pathfinder.setMovements(movements);
+    const movements = new Movements(this.bot!);
+    this.bot!.pathfinder.setMovements(movements);
 
     try {
       await this.bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2));
@@ -948,7 +948,7 @@ class BotManager {
     this.addLog("info", `Starting tree chop (type: ${treeType})...`);
     this.broadcastStatus();
 
-    const mcData = require("minecraft-data")(this.bot.version);
+    const mcData = require("minecraft-data")(this.bot!.version);
 
     // ── 1. Resolve the log block IDs to search for ─────────────────────────
     let searchLogNames: string[];
@@ -1040,11 +1040,11 @@ class BotManager {
     }
 
     // ── 7. Set up pathfinder movements ──────────────────────────────────────
-    const movements = new Movements(this.bot);
+    const movements = new Movements(this.bot!);
     movements.allowParkour = true;
     movements.allowSprinting = true;
     movements.canDig = true;
-    this.bot.pathfinder.setMovements(movements);
+    this.bot!.pathfinder.setMovements(movements);
 
     // ── 8. Mine logs from bottom to top ─────────────────────────────────────
     const sorted = logBlocks.sort((a, b) => a.y - b.y);
