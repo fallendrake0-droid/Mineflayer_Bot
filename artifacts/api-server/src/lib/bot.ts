@@ -395,9 +395,9 @@ class BotManager {
     this.addLog("info", `Following player: ${targetName}`);
     this.broadcastStatus();
 
-    const mcData = require("minecraft-data")(this.bot.version);
-    const movements = new Movements(this.bot);
-    this.bot.pathfinder.setMovements(movements);
+    const mcData = require("minecraft-data")(this.bot!.version);
+    const movements = new Movements(this.bot!);
+    this.bot!.pathfinder.setMovements(movements);
 
     const followLoop = () => {
       if (!this.isTaskCurrent(taskId) || this.currentTask !== `following ${targetName}`) return;
@@ -411,7 +411,7 @@ class BotManager {
         return;
       }
       const goal = new goals.GoalFollow(target, 2);
-      this.bot.pathfinder.setGoal(goal, true);
+      this.bot!.pathfinder.setGoal(goal, true);
     };
 
     followLoop();
@@ -445,7 +445,7 @@ class BotManager {
         "zombified_piglin", "piglin_brute", "hoglin", "ravager"
       ];
 
-      const mob = Object.values(this.bot.entities).find((e) => {
+      const mob = Object.values(this.bot!.entities).find((e) => {
         return (
           e.type === "mob" &&
           hostile.some((h) => e.name?.toLowerCase().includes(h)) &&
@@ -524,11 +524,11 @@ class BotManager {
         .filter((id): id is number => id !== undefined);
 
       if (blockIds.length === 0) {
-        this.addLog("warn", `No block IDs found for ${resource} in version ${this.bot.version}`);
+        this.addLog("warn", `No block IDs found for ${resource} in version ${this.bot!.version}`);
         return;
       }
 
-      const block = this.bot.findBlock({
+      const block = this.bot!.findBlock({
         matching: blockIds,
         maxDistance: 32,
       });
@@ -536,7 +536,7 @@ class BotManager {
       if (!block) {
         this.addLog("info", `No ${resource} found nearby, exploring...`);
         try {
-          const pos = this.bot.entity.position;
+          const pos = this.bot!.entity.position;
           await this.bot!.pathfinder.goto(
             new goals.GoalXZ(
               Math.floor(pos.x + (Math.random() - 0.5) * 20),
