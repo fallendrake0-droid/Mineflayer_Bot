@@ -233,7 +233,7 @@ class AIService {
     if (provider === "openai") {
       const apiKey = process.env["OPENAI_API_KEY"];
       if (!apiKey) throw new Error("OPENAI_API_KEY not set");
-      const response = await fetch("https:/api.openai.com/v1/chat/completions", {
+      const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           ...commonHeaders,
@@ -276,7 +276,7 @@ class AIService {
     if (provider === "anthropic") {
       const apiKey = process.env["ANTHROPIC_API_KEY"];
       if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
-      const response = await fetch("https:/api.anthropic.com/v1/messages", {
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           ...commonHeaders,
