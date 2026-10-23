@@ -19,6 +19,9 @@ jobs:
     name: Typecheck and build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      # Existing Vite configs expect PORT even during static compilation.
+      PORT: "3000"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
