@@ -397,10 +397,13 @@ class AIService {
       const apiKey = process.env["GEMINI_API_KEY"];
       if (!apiKey) throw new Error("GEMINI_API_KEY not set");
       const response = await this.fetchWithTimeout(
-        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
         {
           method: "POST",
-          headers: commonHeaders,
+          headers: {
+            ...commonHeaders,
+            "x-goog-api-key": apiKey,
+          },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             // Gemini 3.x deprecates legacy sampling parameters; retain the
