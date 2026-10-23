@@ -371,7 +371,7 @@ class BotManager {
 
   getInventory(): InventoryItem[] {
     if (!this.bot) return [];
-    return this.bot.inventory.items().map((item) => {
+    return this.bot!.inventory.items().map((item) => {
       const name = item.name.toLowerCase();
       const isArmor = ARMOR_NAMES.some((a) => name.includes(a));
       const isTool = TOOL_NAMES.some((t) => name.includes(t));
@@ -464,7 +464,7 @@ class BotManager {
       this.bot!.pathfinder.setMovements(movements);
 
       try {
-        await this.bot.pathfinder.goto(new goals.GoalNear(mob.position.x, mob.position.y, mob.position.z, 2));
+        await this.bot!.pathfinder.goto(new goals.GoalNear(mob.position.x, mob.position.y, mob.position.z, 2));
         if (!this.isTaskCurrent(taskId)) return;
         this.bot!.attack(mob);
         this.addLog("success", `Killed ${mob.name ?? "mob"}`);
@@ -618,7 +618,7 @@ class BotManager {
         const movements = new Movements(this.bot!);
         this.bot!.pathfinder.setMovements(movements);
         try {
-          await this.bot.pathfinder.goto(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 2));
+          await this.bot!.pathfinder.goto(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 2));
         } catch (_) {
           if (!this.isTaskCurrent(taskId)) return;
         }
@@ -649,7 +649,7 @@ class BotManager {
   async buildBase() {
     if (!this.bot) throw new Error("Bot not connected");
 
-    const cobblestone = this.bot.inventory.items().find(
+    const cobblestone = this.bot!.inventory.items().find(
       (item) => item.name.toLowerCase().includes("cobblestone") || item.name.toLowerCase().includes("stone")
     );
 
@@ -677,11 +677,11 @@ class BotManager {
         if (x !== 0 && x !== size - 1 && z !== 0 && z !== size - 1) continue;
 
         const targetPos = origin.offset(x, -1, z);
-        const block = this.bot.blockAt(targetPos);
+        const block = this.bot!.blockAt(targetPos);
 
         if (!block || block.type === 0) {
           try {
-            const refBlock = this.bot.blockAt(targetPos.offset(0, 1, 0));
+            const refBlock = this.bot!.blockAt(targetPos.offset(0, 1, 0));
             if (refBlock) {
               if (!this.isTaskCurrent(taskId)) return;
               await this.bot!.placeBlock(refBlock, { x: 0, y: -1, z: 0 } as never);
@@ -717,7 +717,7 @@ class BotManager {
 
     try {
       const pos = this.bot!.entity.position;
-      await this.bot.pathfinder.goto(
+      await this.bot!.pathfinder.goto(
         new goals.GoalBlock(Math.floor(pos.x), Math.floor(targetY), Math.floor(pos.z))
       );
       if (!this.isTaskCurrent(taskId)) return;
@@ -760,7 +760,7 @@ class BotManager {
     this.bot!.pathfinder.setMovements(movements);
 
     try {
-      await this.bot.pathfinder.goto(
+      await this.bot!.pathfinder.goto(
         new goals.GoalNear(entity.position.x, entity.position.y, entity.position.z, 2)
       );
       if (!this.isTaskCurrent(taskId)) return;
@@ -807,7 +807,7 @@ class BotManager {
     this.bot!.pathfinder.setMovements(movements);
 
     try {
-      await this.bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2));
+      await this.bot!.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 2));
       if (!this.isTaskCurrent(taskId)) return;
       const currentBlock = this.bot!.blockAt(block.position);
       if (!currentBlock || currentBlock.type !== block.type) {
@@ -1001,7 +1001,7 @@ class BotManager {
       if (visited.has(key)) continue;
       visited.add(key);
 
-      const block = this.bot.blockAt(pos as never);
+      const block = this.bot!.blockAt(pos as never);
       if (!block || !allLogIds.has(block.type)) continue;
 
       logBlocks.push(pos);
@@ -1137,14 +1137,14 @@ class BotManager {
 
       // The stump.y is where the lowest log was — saplings go on the block below it
       const soilPos = { x: stump.x, y: stump.y - 1, z: stump.z };
-      const soilBlock = this.bot.blockAt(soilPos as never);
+      const soilBlock = this.bot!.blockAt(soilPos as never);
       if (!soilBlock || !soilIds.has(soilBlock.type)) {
         this.addLog("warn", `Skipping replant at ${stump.x},${stump.y},${stump.z}: not suitable soil (${soilBlock?.name ?? "air"})`);
         continue;
       }
 
       // The space at stump.y must be air
-      const airBlock = this.bot.blockAt(stump as never);
+      const airBlock = this.bot!.blockAt(stump as never);
       if (!airBlock || airBlock.type !== 0) {
         this.addLog("warn", `Skipping replant at ${stump.x},${stump.y},${stump.z}: space not clear`);
         continue;
@@ -1159,7 +1159,7 @@ class BotManager {
       if (!this.isTaskCurrent(taskId)) return;
 
       // Equip sapling
-      const saplingInv = this.bot.inventory.items().find((i) =>
+      const saplingInv = this.bot!.inventory.items().find((i) =>
         i.name.toLowerCase().includes(config.sapling)
       );
       if (!saplingInv) break;
@@ -1186,7 +1186,7 @@ class BotManager {
     if (!this.bot) return;
     const priority = ["diamond_axe", "iron_axe", "stone_axe", "golden_axe", "wooden_axe"];
     for (const axeName of priority) {
-      const axe = this.bot.inventory.items().find((i) => i.name === axeName);
+      const axe = this.bot!.inventory.items().find((i) => i.name === axeName);
       if (axe) {
         try {
           await this.bot.equip(axe, "hand");
