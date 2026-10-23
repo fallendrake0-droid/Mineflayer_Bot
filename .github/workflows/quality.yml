@@ -22,6 +22,7 @@ jobs:
     env:
       # Existing Vite configs expect PORT even during static compilation.
       PORT: "3000"
+      BASE_PATH: "/"
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
