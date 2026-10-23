@@ -68,6 +68,15 @@ const TREE_TYPES: Record<string, TreeTypeConfig> = {
 
 const ALL_LOG_NAMES = Object.values(TREE_TYPES).flatMap((t) => t.logs);
 
+// Parse the operator allowlist once at startup, not on every incoming chat
+// message. Change the environment value and restart to update permissions.
+const ALLOWED_CHAT_SENDERS = new Set(
+  (process.env["MINEFLAYER_COMMAND_ALLOWLIST"] ?? "")
+    .split(",")
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean),
+);
+
 // Detect tree type from a log block name
 function detectTreeType(blockName: string): TreeTypeConfig | null {
   for (const config of Object.values(TREE_TYPES)) {
@@ -416,6 +425,10 @@ class BotManager {
       try {
         await this.checkAndKillMobs();
 
+        // Another task may have stopped mining while the mob check yielded.
+        // Re-check ownership before issuing any additional pathfinding/digging.
+        if (!this.bot || !this.miningActive) return;
+
       const blockIds = blockNames
         .map((name) => mcData.blocksByName[name]?.id)
         .filter((id): id is number => id !== undefined);
@@ -698,15 +711,11 @@ class BotManager {
     // Chat commands are disabled unless explicitly enabled by a server-side
     // allowlist. Values can be exact Minecraft usernames or UUIDs, separated
     // by commas in MINEFLAYER_COMMAND_ALLOWLIST.
-    const allowedSenders = (process.env["MINEFLAYER_COMMAND_ALLOWLIST"] ?? "")
-      .split(",")
-      .map((value) => value.trim().toLowerCase())
-      .filter(Boolean);
     const senderKey = sender.toLowerCase();
     const senderUuid = this.bot?.players[sender]?.uuid?.toLowerCase();
-    const authorized = allowedSenders.length > 0 &&
-      (allowedSenders.includes(senderKey) ||
-        (typeof senderUuid === "string" && allowedSenders.includes(senderUuid)));
+    const authorized = ALLOWED_CHAT_SENDERS.size > 0 &&
+      (ALLOWED_CHAT_SENDERS.has(senderKey) ||
+        (typeof senderUuid === "string" && ALLOWED_CHAT_SENDERS.has(senderUuid)));
 
     if (!authorized) {
       // Bound and rate-limit rejected-command logging so public chat cannot
