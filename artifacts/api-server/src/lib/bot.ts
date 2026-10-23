@@ -332,9 +332,14 @@ class BotManager {
     this.miningActive = false;
     this.miningGeneration += 1;
     if (this.bot) {
+      // Clear lingering input (for example the jump fallback used by climb)
+      // before releasing pathfinder ownership to another task.
+      for (const control of ["forward", "back", "left", "right", "jump", "sprint", "sneak"] as const) {
+        try { this.bot.setControlState(control, false); } catch { /* bot is closing */ }
+      }
       try {
         this.bot.pathfinder.stop();
-      } catch (_) {}
+      } catch { /* no pathfinder goal is active */ }
     }
   }
 
@@ -593,14 +598,18 @@ class BotManager {
   async dropItems(targetName?: string) {
     if (!this.bot) throw new Error("Bot not connected");
 
-    this.addLog("info", "Dropping non-essential items...");
-
     const items = this.getInventory().filter((item) => !item.isArmor && !item.isTool);
 
     if (items.length === 0) {
       this.addLog("info", "Nothing to drop");
       return;
     }
+
+    this.stopAllTasks();
+    const taskId = this.taskGeneration;
+    this.currentTask = "dropping items";
+    this.addLog("info", "Dropping non-essential items...");
+    this.broadcastStatus();
 
     if (targetName) {
       const target = this.bot.players[targetName]?.entity;
@@ -610,15 +619,20 @@ class BotManager {
         this.bot.pathfinder.setMovements(movements);
         try {
           await this.bot.pathfinder.goto(new goals.GoalNear(target.position.x, target.position.y, target.position.z, 2));
-        } catch (_) {}
+        } catch (_) {
+          if (!this.isTaskCurrent(taskId)) return;
+        }
+        if (!this.isTaskCurrent(taskId)) return;
       }
     }
 
     for (const item of items) {
-      const invItem = this.bot.inventory.items().find((i) => i.slot === item.slot);
+      if (!this.isTaskCurrent(taskId)) return;
+      const invItem = this.bot!.inventory.items().find((i) => i.slot === item.slot);
       if (invItem) {
         try {
-          await this.bot.toss(invItem.type, null, invItem.count);
+          await this.bot!.toss(invItem.type, null, invItem.count);
+          if (!this.isTaskCurrent(taskId)) return;
           this.addLog("success", `Dropped ${invItem.count}x ${invItem.name}`);
         } catch (err: unknown) {
           this.addLog("warn", `Failed to drop ${invItem.name}: ${err instanceof Error ? err.message : String(err)}`);
@@ -626,15 +640,14 @@ class BotManager {
       }
     }
 
+    if (!this.isTaskCurrent(taskId)) return;
     this.addLog("success", `Finished dropping ${items.length} item type(s)`);
+    this.currentTask = "idle";
+    this.broadcastStatus();
   }
 
   async buildBase() {
     if (!this.bot) throw new Error("Bot not connected");
-
-    this.addLog("info", "Building 10x10 base...");
-    this.currentTask = "building base";
-    this.broadcastStatus();
 
     const cobblestone = this.bot.inventory.items().find(
       (item) => item.name.toLowerCase().includes("cobblestone") || item.name.toLowerCase().includes("stone")
@@ -642,12 +655,16 @@ class BotManager {
 
     if (!cobblestone) {
       this.addLog("error", "No stone/cobblestone in inventory to build with");
-      this.currentTask = "idle";
-      this.broadcastStatus();
       return;
     }
 
-    const mcData = require("minecraft-data")(this.bot.version);
+    this.stopAllTasks();
+    const taskId = this.taskGeneration;
+    this.currentTask = "building base";
+    this.addLog("info", "Building 10x10 base...");
+    this.broadcastStatus();
+
+    const mcData = require("minecraft-data")(this.bot!.version);
     const origin = this.bot.entity.position.floored();
 
     this.addLog("info", `Building at ${origin.x}, ${origin.y}, ${origin.z}`);
@@ -655,9 +672,8 @@ class BotManager {
     let placed = 0;
     const size = 10;
 
-    for (let x = 0; x < size; x++) {
-      for (let z = 0; z < size; z++) {
-        if (!this.bot) break;
+    for (let x = 0; x < size && this.isTaskCurrent(taskId); x++) {
+      for (let z = 0; z < size && this.isTaskCurrent(taskId); z++) {
         if (x !== 0 && x !== size - 1 && z !== 0 && z !== size - 1) continue;
 
         const targetPos = origin.offset(x, -1, z);
@@ -667,7 +683,8 @@ class BotManager {
           try {
             const refBlock = this.bot.blockAt(targetPos.offset(0, 1, 0));
             if (refBlock) {
-              await this.bot.placeBlock(refBlock, { x: 0, y: -1, z: 0 } as never);
+              if (!this.isTaskCurrent(taskId)) return;
+              await this.bot!.placeBlock(refBlock, { x: 0, y: -1, z: 0 } as never);
               placed++;
               if (placed % 5 === 0) this.addLog("info", `Placed ${placed} blocks...`);
             }
@@ -676,6 +693,7 @@ class BotManager {
       }
     }
 
+    if (!this.isTaskCurrent(taskId)) return;
     this.addLog("success", `Base outline built (${placed} blocks placed)`);
     this.currentTask = "idle";
     this.broadcastStatus();
@@ -684,6 +702,8 @@ class BotManager {
   async climb() {
     if (!this.bot) throw new Error("Bot not connected");
 
+    this.stopAllTasks();
+    const taskId = this.taskGeneration;
     this.addLog("info", "Climbing upward...");
     this.currentTask = "climbing";
     this.broadcastStatus();
@@ -700,15 +720,18 @@ class BotManager {
       await this.bot.pathfinder.goto(
         new goals.GoalBlock(Math.floor(pos.x), Math.floor(targetY), Math.floor(pos.z))
       );
+      if (!this.isTaskCurrent(taskId)) return;
       this.addLog("success", `Climbed to Y=${Math.floor(targetY)}`);
     } catch (err: unknown) {
+      if (!this.isTaskCurrent(taskId)) return;
       this.addLog("warn", `Climb encountered obstacle: ${err instanceof Error ? err.message : String(err)}`);
-      this.bot.setControlState("jump", true);
+      this.bot!.setControlState("jump", true);
       setTimeout(() => {
-        if (this.bot) this.bot.setControlState("jump", false);
+        if (this.isTaskCurrent(taskId)) this.bot!.setControlState("jump", false);
       }, 2000);
     }
 
+    if (!this.isTaskCurrent(taskId)) return;
     this.currentTask = "idle";
     this.broadcastStatus();
   }
