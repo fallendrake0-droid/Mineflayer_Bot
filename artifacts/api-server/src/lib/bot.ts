@@ -94,6 +94,7 @@ class BotManager {
   private followInterval: ReturnType<typeof setInterval> | null = null;
   private miningActive = false;
   private miningLoopRunning = false;
+  private miningGeneration = 0;
   private miningInterval: ReturnType<typeof setInterval> | null = null;
   private readonly authorizedSockets = new WeakSet<WebSocket>();
   private readonly rejectedChatCommandAt = new Map<string, number>();
@@ -265,6 +266,7 @@ class BotManager {
       this.miningInterval = null;
     }
     this.miningActive = false;
+    this.miningGeneration += 1;
     if (this.bot) {
       try {
         this.bot.pathfinder.stop();
@@ -406,6 +408,7 @@ class BotManager {
 
     this.stopAllTasks();
     this.miningActive = true;
+    const generation = this.miningGeneration;
     this.currentTask = `mining ${resource}`;
     this.addLog("info", `Starting to mine ${resource}...`);
     this.broadcastStatus();
@@ -416,7 +419,12 @@ class BotManager {
     this.bot.pathfinder.setMovements(movements);
 
     const mineLoop = async () => {
-      if (!this.bot || !this.miningActive || this.miningLoopRunning) return;
+      if (
+        !this.bot ||
+        !this.miningActive ||
+        generation !== this.miningGeneration ||
+        this.miningLoopRunning
+      ) return;
 
       // setInterval callbacks can overlap when pathfinding or digging takes
       // longer than the interval. A single guard gives this loop exclusive
@@ -427,7 +435,7 @@ class BotManager {
 
         // Another task may have stopped mining while the mob check yielded.
         // Re-check ownership before issuing any additional pathfinding/digging.
-        if (!this.bot || !this.miningActive) return;
+        if (!this.bot || !this.miningActive || generation !== this.miningGeneration) return;
 
       const blockIds = blockNames
         .map((name) => mcData.blocksByName[name]?.id)
@@ -461,6 +469,9 @@ class BotManager {
 
       try {
         await this.bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 1));
+        // Do not let a canceled iteration dig after a replacement task has
+        // taken ownership of navigation.
+        if (!this.bot || !this.miningActive || generation !== this.miningGeneration) return;
         await this.bot.dig(block);
         this.addLog("success", `Mined ${resource}!`);
       } catch (err: unknown) {
