@@ -938,8 +938,12 @@ class BotManager {
    */
   async chopTree(treeType = "any") {
     if (!this.bot) throw new Error("Bot not connected");
+    if (treeType !== "any" && !TREE_TYPES[treeType]) {
+      throw new Error(`Unknown tree type: ${treeType}. Valid: ${Object.keys(TREE_TYPES).join(", ")}, any`);
+    }
 
     this.stopAllTasks();
+    const taskId = this.taskGeneration;
     this.currentTask = `chopping ${treeType === "any" ? "nearest" : treeType} tree`;
     this.addLog("info", `Starting tree chop (type: ${treeType})...`);
     this.broadcastStatus();
@@ -969,9 +973,10 @@ class BotManager {
 
     // ── 2. Equip axe if available ────────────────────────────────────────────
     await this.equipBestAxe();
+    if (!this.isTaskCurrent(taskId)) return;
 
     // ── 3. Find the nearest log block ────────────────────────────────────────
-    const firstLog = this.bot.findBlock({ matching: searchLogIds, maxDistance: 64 });
+    const firstLog = this.bot!.findBlock({ matching: searchLogIds, maxDistance: 64 });
     if (!firstLog) {
       this.addLog("warn", `No ${treeType === "any" ? "" : treeType + " "}tree found within 64 blocks`);
       this.currentTask = "idle";
@@ -1046,36 +1051,43 @@ class BotManager {
     let chopped = 0;
 
     for (const pos of sorted) {
-      if (!this.bot) break;
+      if (!this.isTaskCurrent(taskId)) return;
 
       // Kill mobs before each chop pass
       await this.checkAndKillMobs();
+      if (!this.isTaskCurrent(taskId)) return;
 
-      const block = this.bot.blockAt(pos as never);
+      const block = this.bot!.blockAt(pos as never);
       if (!block || !allLogIds.has(block.type)) continue; // already gone (leaf decay etc)
 
       try {
         // Navigate within reach (4 blocks)
-        await this.bot.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 3));
-        await this.bot.dig(block);
+        await this.bot!.pathfinder.goto(new goals.GoalNear(pos.x, pos.y, pos.z, 3));
+        if (!this.isTaskCurrent(taskId)) return;
+        await this.bot!.dig(block);
+        if (!this.isTaskCurrent(taskId)) return;
         chopped++;
         if (chopped % 5 === 0) this.addLog("info", `Chopped ${chopped}/${sorted.length} logs...`);
       } catch (err: unknown) {
+        if (!this.isTaskCurrent(taskId)) return;
         // Log is already broken or unreachable — skip
         this.addLog("warn", `Skipped log at ${pos.x},${pos.y},${pos.z}: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       // Small delay to let items land
       await new Promise((r) => setTimeout(r, 150));
+      if (!this.isTaskCurrent(taskId)) return;
     }
 
+    if (!this.isTaskCurrent(taskId)) return;
     this.addLog("success", `Chopped ${chopped} log(s)`);
 
     // ── 9. Wait briefly for item drops to be collected ──────────────────────
     await new Promise((r) => setTimeout(r, 1200));
+    if (!this.isTaskCurrent(taskId)) return;
 
     // ── 10. Count saplings in inventory ─────────────────────────────────────
-    const saplingItem = this.bot.inventory.items().find((i) =>
+    const saplingItem = this.bot!.inventory.items().find((i) =>
       i.name.toLowerCase().includes(treeConfig.sapling)
     );
     const saplingCount = saplingItem?.count ?? 0;
@@ -1083,17 +1095,17 @@ class BotManager {
 
     // ── 11. Replant saplings ─────────────────────────────────────────────────
     if (saplingCount > 0) {
-      await this.replantSaplings(columnLowest, treeConfig, mcData, saplingCount);
+      await this.replantSaplings(columnLowest, treeConfig, mcData, saplingCount, taskId);
+      if (!this.isTaskCurrent(taskId)) return;
     } else {
       this.addLog("warn", "No saplings found in inventory — skipping replant");
     }
 
     // ── 12. Report back ──────────────────────────────────────────────────────
+    if (!this.isTaskCurrent(taskId)) return;
     const replanted = Math.min(saplingCount, columnLowest.size);
     this.addLog("success", `Tree chop complete: ${chopped} logs, ${replanted} sapling(s) replanted`);
-    if (this.bot) {
-      this.bot.chat(`[MineControl] Chopped ${chopped} ${treeType === "any" ? "" : treeType + " "}logs, replanted ${replanted} sapling(s)`);
-    }
+    this.bot!.chat(`[MineControl] Chopped ${chopped} ${treeType === "any" ? "" : treeType + " "}logs, replanted ${replanted} sapling(s)`);
 
     this.currentTask = "idle";
     this.broadcastStatus();
@@ -1106,9 +1118,10 @@ class BotManager {
     positions: Map<string, { x: number; y: number; z: number }>,
     config: TreeTypeConfig,
     mcData: ReturnType<typeof require>,
-    maxCount: number
+    maxCount: number,
+    taskId: number
   ) {
-    if (!this.bot) return;
+    if (!this.isTaskCurrent(taskId)) return;
 
     const soilIds = new Set<number>(
       config.soil
@@ -1120,7 +1133,7 @@ class BotManager {
 
     for (const stump of positions.values()) {
       if (placed >= maxCount) break;
-      if (!this.bot) break;
+      if (!this.isTaskCurrent(taskId)) return;
 
       // The stump.y is where the lowest log was — saplings go on the block below it
       const soilPos = { x: stump.x, y: stump.y - 1, z: stump.z };
@@ -1139,8 +1152,11 @@ class BotManager {
 
       // Navigate close to the soil block
       try {
-        await this.bot.pathfinder.goto(new goals.GoalNear(stump.x, stump.y, stump.z, 2));
-      } catch (_) {}
+        await this.bot!.pathfinder.goto(new goals.GoalNear(stump.x, stump.y, stump.z, 2));
+      } catch (_) {
+        if (!this.isTaskCurrent(taskId)) return;
+      }
+      if (!this.isTaskCurrent(taskId)) return;
 
       // Equip sapling
       const saplingInv = this.bot.inventory.items().find((i) =>
@@ -1149,8 +1165,10 @@ class BotManager {
       if (!saplingInv) break;
 
       try {
-        await this.bot.equip(saplingInv, "hand");
-        await this.bot.placeBlock(soilBlock, { x: 0, y: 1, z: 0 } as never);
+        await this.bot!.equip(saplingInv, "hand");
+        if (!this.isTaskCurrent(taskId)) return;
+        await this.bot!.placeBlock(soilBlock, { x: 0, y: 1, z: 0 } as never);
+        if (!this.isTaskCurrent(taskId)) return;
         placed++;
         this.addLog("success", `Replanted ${config.sapling} at ${stump.x},${stump.y},${stump.z}`);
       } catch (err: unknown) {
