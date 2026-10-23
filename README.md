@@ -10,9 +10,9 @@ Before deploying the API or dashboard on a network, configure a unique dashboard
 2. Generate a strong secret of at least 32 characters, for example with `openssl rand -hex 32`, and set it as `DASHBOARD_TOKEN`. The server refuses missing or shorter tokens.
 3. Open the dashboard and enter the same token in its access prompt. The dashboard keeps it in session storage and sends it as a bearer token for API requests.
 4. Use HTTPS for remote access. Do not expose a live bot on the public internet without a strong token and suitable network controls.
-5. If the dashboard uses a different origin from the API, set `DASHBOARD_ORIGINS` to the comma-separated exact allowed origins. Same-origin is the default.
+5. If the dashboard uses a different origin from the API, set `DASHBOARD_ORIGINS` on the API server to the comma-separated exact allowed dashboard origins, and set the dashboard build-time variable `VITE_API_BASE_URL` to the API origin (for example, `https://api.example.com`). Same-origin is the default. `VITE_API_BASE_URL` is public frontend configuration, not a secret; never put an API key in a `VITE_` variable.
 
-The `/api/healthz` health check remains public and does not return bot state. Bot connection, status, task, inventory, logs, commands and AI routes require authentication. The WebSocket at `/ws` sends no status/log data until its first-message token handshake succeeds.
+The dashboard API client and telemetry WebSocket both use `VITE_API_BASE_URL` when configured, so split-origin deployments route REST and WebSocket requests to the same API server. The `/api/healthz` health check remains public and does not return bot state. Bot connection, status, task, inventory, logs, commands and AI routes require authentication. The WebSocket at `/ws` sends no status/log data until its first-message token handshake succeeds.
 
 ## In-game chat command allowlist
 
