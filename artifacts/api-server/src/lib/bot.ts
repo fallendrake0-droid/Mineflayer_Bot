@@ -87,6 +87,10 @@ function detectTreeType(blockName: string): TreeTypeConfig | null {
 
 class BotManager {
   private bot: Bot | null = null;
+  private pendingBot: Bot | null = null;
+  private connecting = false;
+  private connectTimeout: ReturnType<typeof setTimeout> | null = null;
+  private taskGeneration = 0;
   private wss: WebSocketServer | null = null;
   private logs: LogEntry[] = [];
   private maxLogs = 500;
@@ -158,27 +162,72 @@ class BotManager {
 
   connect(host: string, port: number, username: string, version: string): Promise<void> {
     return new Promise((resolve, reject) => {
-      if (this.bot) {
-        reject(new Error("Bot is already connected. Disconnect first."));
+      if (this.bot || this.connecting) {
+        reject(new Error(this.connecting ? "Bot connection is already in progress." : "Bot is already connected. Disconnect first."));
         return;
       }
 
+      this.connecting = true;
       this.addLog("info", `Connecting to ${host}:${port} as ${username}...`);
 
-      const bot = mineflayer.createBot({
-        host,
-        port,
-        username,
-        version,
-        hideErrors: false,
-      });
+      let bot: Bot;
+      try {
+        bot = mineflayer.createBot({
+          host,
+          port,
+          username,
+          version,
+          hideErrors: false,
+        });
+      } catch (err: unknown) {
+        this.connecting = false;
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
 
+      this.pendingBot = bot;
       bot.loadPlugin(pathfinder);
 
       let spawned = false;
+      let settled = false;
+
+      const clearPendingConnection = () => {
+        if (this.connectTimeout) {
+          clearTimeout(this.connectTimeout);
+          this.connectTimeout = null;
+        }
+        this.connecting = false;
+        if (this.pendingBot === bot) this.pendingBot = null;
+      };
+
+      const failConnection = (err: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearPendingConnection();
+        if (this.bot === bot) {
+          this.cleanup();
+        } else {
+          this.stopAllTasks();
+          this.currentTask = "idle";
+          this.broadcastStatus();
+        }
+        reject(err instanceof Error ? err : new Error(String(err)));
+        try {
+          bot.end();
+        } catch {
+          // The client may already have closed.
+        }
+      };
 
       bot.once("spawn", () => {
+        if (settled) {
+          // A late spawn after timeout/cancellation must not resurrect this client.
+          try { bot.end(); } catch { /* already closed */ }
+          return;
+        }
         spawned = true;
+        settled = true;
+        clearPendingConnection();
         this.bot = bot;
         this.addLog("success", `Bot spawned as ${username} on ${host}:${port}`);
         this.broadcastStatus();
@@ -190,13 +239,8 @@ class BotManager {
         this.handleChatCommand(_username, message);
       });
 
-      bot.on("health", () => {
-        this.broadcastStatus();
-      });
-
-      bot.on("move", () => {
-        this.broadcastStatus();
-      });
+      bot.on("health", () => this.broadcastStatus());
+      bot.on("move", () => this.broadcastStatus());
 
       bot.on("playerJoined", (player) => {
         this.addLog("info", `Player joined: ${player.username}`);
@@ -211,31 +255,36 @@ class BotManager {
       bot.on("death", () => {
         this.addLog("warn", "Bot died!");
         this.stopAllTasks();
+        this.currentTask = "idle";
         this.broadcastStatus();
       });
 
       bot.on("kicked", (reason) => {
         this.addLog("error", `Bot was kicked: ${reason}`);
-        this.cleanup();
+        if (!spawned) {
+          failConnection(new Error(`Bot was kicked before spawning: ${String(reason)}`));
+        } else if (this.bot === bot) {
+          this.cleanup();
+        }
       });
 
       bot.on("error", (err) => {
         this.addLog("error", `Bot error: ${err.message}`);
-        if (!spawned) {
-          this.cleanup();
-          reject(err);
-        }
+        if (!spawned) failConnection(err);
       });
 
       bot.on("end", (reason) => {
         this.addLog("warn", `Bot disconnected: ${reason}`);
-        this.cleanup();
+        if (!spawned && !settled) {
+          failConnection(new Error(`Bot disconnected before spawning: ${String(reason ?? "connection ended")}`));
+        } else if (this.bot === bot) {
+          this.cleanup();
+        }
       });
 
-      setTimeout(() => {
-        if (!spawned) {
-          bot.end();
-          reject(new Error("Connection timed out after 15 seconds"));
+      this.connectTimeout = setTimeout(() => {
+        if (!spawned && !settled) {
+          failConnection(new Error("Connection timed out after 15 seconds"));
         }
       }, 15000);
     });
