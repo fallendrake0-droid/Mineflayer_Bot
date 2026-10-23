@@ -84,10 +84,23 @@ class BotManager {
   private currentTask = "idle";
   private followInterval: ReturnType<typeof setInterval> | null = null;
   private miningActive = false;
+  private miningLoopRunning = false;
   private miningInterval: ReturnType<typeof setInterval> | null = null;
+  private readonly authorizedSockets = new WeakSet<WebSocket>();
+  private readonly rejectedChatCommandAt = new Map<string, number>();
+  private lastStatusBroadcastAt = 0;
+  private statusBroadcastTimer: ReturnType<typeof setTimeout> | null = null;
 
   setWss(wss: WebSocketServer) {
     this.wss = wss;
+  }
+
+  authorizeWebSocket(client: WebSocket) {
+    this.authorizedSockets.add(client);
+  }
+
+  unauthorizeWebSocket(client: WebSocket) {
+    this.authorizedSockets.delete(client);
   }
 
   private addLog(level: LogLevel, message: string) {
@@ -108,14 +121,29 @@ class BotManager {
     if (!this.wss) return;
     const msg = JSON.stringify(payload);
     this.wss.clients.forEach((client) => {
-      if (client.readyState === client.OPEN) {
+      // Never send live telemetry to a socket until it completes the auth handshake.
+      if (client.readyState === client.OPEN && this.authorizedSockets.has(client)) {
         client.send(msg);
       }
     });
   }
 
   private broadcastStatus() {
-    this.broadcast({ type: "status", data: this.getStatus() });
+    // Mineflayer can emit "move" every tick. Coalesce status updates to avoid
+    // turning routine movement into a high-frequency JSON/network workload.
+    const elapsed = Date.now() - this.lastStatusBroadcastAt;
+    if (elapsed >= 250) {
+      this.lastStatusBroadcastAt = Date.now();
+      this.broadcast({ type: "status", data: this.getStatus() });
+      return;
+    }
+
+    if (this.statusBroadcastTimer) return;
+    this.statusBroadcastTimer = setTimeout(() => {
+      this.statusBroadcastTimer = null;
+      this.lastStatusBroadcastAt = Date.now();
+      this.broadcast({ type: "status", data: this.getStatus() });
+    }, Math.max(1, 250 - elapsed));
   }
 
   connect(host: string, port: number, username: string, version: string): Promise<void> {
@@ -228,6 +256,7 @@ class BotManager {
       this.miningInterval = null;
     }
     this.miningActive = false;
+    this.miningLoopRunning = false;
     if (this.bot) {
       try {
         this.bot.pathfinder.stop();
@@ -658,6 +687,36 @@ class BotManager {
    */
   private handleChatCommand(sender: string, message: string) {
     if (!message.startsWith("!")) return;
+
+    // Chat commands are disabled unless explicitly enabled by a server-side
+    // allowlist. Values can be exact Minecraft usernames or UUIDs, separated
+    // by commas in MINEFLAYER_COMMAND_ALLOWLIST.
+    const allowedSenders = (process.env["MINEFLAYER_COMMAND_ALLOWLIST"] ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean);
+    const senderKey = sender.toLowerCase();
+    const senderUuid = this.bot?.players[sender]?.uuid?.toLowerCase();
+    const authorized = allowedSenders.length > 0 &&
+      (allowedSenders.includes(senderKey) ||
+        (typeof senderUuid === "string" && allowedSenders.includes(senderUuid)));
+
+    if (!authorized) {
+      // Bound and rate-limit rejected-command logging so public chat cannot
+      // create unbounded memory growth or flood the logs.
+      const now = Date.now();
+      const lastLoggedAt = this.rejectedChatCommandAt.get(senderKey) ?? 0;
+      if (now - lastLoggedAt >= 30_000) {
+        if (!this.rejectedChatCommandAt.has(senderKey) && this.rejectedChatCommandAt.size >= 100) {
+          const oldestKey = this.rejectedChatCommandAt.keys().next().value;
+          if (oldestKey !== undefined) this.rejectedChatCommandAt.delete(oldestKey);
+        }
+        this.rejectedChatCommandAt.set(senderKey, now);
+        this.addLog("warn", `Ignored command from unauthorised player "${sender}"`);
+      }
+      return;
+    }
+
     const [cmd, ...args] = message.trim().split(/\s+/);
 
     switch (cmd.toLowerCase()) {
