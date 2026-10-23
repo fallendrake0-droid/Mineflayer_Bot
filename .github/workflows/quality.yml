@@ -49,3 +49,6 @@ jobs:
 
       - name: Build workspace
         run: pnpm run build
+
+      - name: Smoke test authenticated API and WebSocket
+        run: node --test artifacts/api-server/tests/server-smoke.test.mjs
