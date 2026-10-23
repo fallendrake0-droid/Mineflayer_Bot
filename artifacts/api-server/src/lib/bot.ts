@@ -256,7 +256,6 @@ class BotManager {
       this.miningInterval = null;
     }
     this.miningActive = false;
-    this.miningLoopRunning = false;
     if (this.bot) {
       try {
         this.bot.pathfinder.stop();
@@ -408,9 +407,14 @@ class BotManager {
     this.bot.pathfinder.setMovements(movements);
 
     const mineLoop = async () => {
-      if (!this.bot || !this.miningActive) return;
+      if (!this.bot || !this.miningActive || this.miningLoopRunning) return;
 
-      await this.checkAndKillMobs();
+      // setInterval callbacks can overlap when pathfinding or digging takes
+      // longer than the interval. A single guard gives this loop exclusive
+      // ownership until its current async iteration has finished.
+      this.miningLoopRunning = true;
+      try {
+        await this.checkAndKillMobs();
 
       const blockIds = blockNames
         .map((name) => mcData.blocksByName[name]?.id)
@@ -449,10 +453,13 @@ class BotManager {
       } catch (err: unknown) {
         this.addLog("warn", `Mining failed: ${err instanceof Error ? err.message : String(err)}`);
       }
+      } finally {
+        this.miningLoopRunning = false;
+      }
     };
 
     this.miningInterval = setInterval(() => {
-      mineLoop().catch((e) => this.addLog("error", `Mine loop error: ${e.message}`));
+      mineLoop().catch((e) => this.addLog("error", `Mine loop error: ${e instanceof Error ? e.message : String(e)}`));
     }, 2000);
 
     await mineLoop();
