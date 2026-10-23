@@ -384,6 +384,8 @@ class BotManager {
     if (!this.bot) throw new Error("Bot not connected");
 
     this.stopAllTasks();
+    const taskId = this.taskGeneration;
+    let lastMissingTargetLogAt = 0;
     this.currentTask = `following ${targetName}`;
     this.addLog("info", `Following player: ${targetName}`);
     this.broadcastStatus();
@@ -393,10 +395,14 @@ class BotManager {
     this.bot.pathfinder.setMovements(movements);
 
     const followLoop = () => {
-      if (!this.bot || this.currentTask !== `following ${targetName}`) return;
-      const target = this.bot.players[targetName]?.entity;
+      if (!this.isTaskCurrent(taskId) || this.currentTask !== `following ${targetName}`) return;
+      const target = this.bot!.players[targetName]?.entity;
       if (!target) {
-        this.addLog("warn", `Player ${targetName} not found nearby`);
+        const now = Date.now();
+        if (now - lastMissingTargetLogAt >= 10_000) {
+          lastMissingTargetLogAt = now;
+          this.addLog("warn", `Player ${targetName} not found nearby`);
+        }
         return;
       }
       const goal = new goals.GoalFollow(target, 2);
@@ -418,12 +424,14 @@ class BotManager {
   async killMobs() {
     if (!this.bot) throw new Error("Bot not connected");
 
+    this.stopAllTasks();
+    const taskId = this.taskGeneration;
     this.addLog("info", "Starting mob-killing routine...");
     this.currentTask = "killing mobs";
     this.broadcastStatus();
 
     const attackNearbyMobs = async () => {
-      if (!this.bot) return;
+      if (!this.isTaskCurrent(taskId)) return;
 
       const hostile = [
         "zombie", "skeleton", "creeper", "spider", "enderman",
@@ -452,14 +460,18 @@ class BotManager {
 
       try {
         await this.bot.pathfinder.goto(new goals.GoalNear(mob.position.x, mob.position.y, mob.position.z, 2));
-        this.bot.attack(mob);
+        if (!this.isTaskCurrent(taskId)) return;
+        this.bot!.attack(mob);
         this.addLog("success", `Killed ${mob.name ?? "mob"}`);
       } catch (err: unknown) {
-        this.addLog("warn", `Could not reach mob: ${err instanceof Error ? err.message : String(err)}`);
+        if (this.isTaskCurrent(taskId)) {
+          this.addLog("warn", `Could not reach mob: ${err instanceof Error ? err.message : String(err)}`);
+        }
       }
     };
 
     await attackNearbyMobs();
+    if (!this.isTaskCurrent(taskId)) return;
     this.currentTask = "idle";
     this.broadcastStatus();
   }
@@ -471,6 +483,7 @@ class BotManager {
     if (!blockNames) throw new Error(`Unknown resource: ${resource}`);
 
     this.stopAllTasks();
+    const taskId = this.taskGeneration;
     this.miningActive = true;
     const generation = this.miningGeneration;
     this.currentTask = `mining ${resource}`;
@@ -484,7 +497,7 @@ class BotManager {
 
     const mineLoop = async () => {
       if (
-        !this.bot ||
+        !this.isTaskCurrent(taskId) ||
         !this.miningActive ||
         generation !== this.miningGeneration ||
         this.miningLoopRunning
@@ -499,7 +512,7 @@ class BotManager {
 
         // Another task may have stopped mining while the mob check yielded.
         // Re-check ownership before issuing any additional pathfinding/digging.
-        if (!this.bot || !this.miningActive || generation !== this.miningGeneration) return;
+        if (!this.isTaskCurrent(taskId) || !this.miningActive || generation !== this.miningGeneration) return;
 
       const blockIds = blockNames
         .map((name) => mcData.blocksByName[name]?.id)
@@ -519,7 +532,7 @@ class BotManager {
         this.addLog("info", `No ${resource} found nearby, exploring...`);
         try {
           const pos = this.bot.entity.position;
-          await this.bot.pathfinder.goto(
+          await this.bot!.pathfinder.goto(
             new goals.GoalXZ(
               Math.floor(pos.x + (Math.random() - 0.5) * 20),
               Math.floor(pos.z + (Math.random() - 0.5) * 20)
@@ -532,11 +545,11 @@ class BotManager {
       this.addLog("info", `Found ${resource} at ${block.position.x},${block.position.y},${block.position.z}`);
 
       try {
-        await this.bot.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 1));
+        await this.bot!.pathfinder.goto(new goals.GoalNear(block.position.x, block.position.y, block.position.z, 1));
         // Do not let a canceled iteration dig after a replacement task has
         // taken ownership of navigation.
-        if (!this.bot || !this.miningActive || generation !== this.miningGeneration) return;
-        await this.bot.dig(block);
+        if (!this.isTaskCurrent(taskId) || !this.miningActive || generation !== this.miningGeneration) return;
+        await this.bot!.dig(block);
         this.addLog("success", `Mined ${resource}!`);
       } catch (err: unknown) {
         this.addLog("warn", `Mining failed: ${err instanceof Error ? err.message : String(err)}`);
