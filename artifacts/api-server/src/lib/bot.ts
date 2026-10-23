@@ -299,7 +299,27 @@ class BotManager {
   }
 
   disconnect() {
-    if (!this.bot) throw new Error("Bot is not connected");
+    if (!this.bot) {
+      // Allow the dashboard to cancel a connection that has not spawned yet.
+      // The pending client's end event rejects the original connect promise.
+      if (this.connecting && this.pendingBot) {
+        this.addLog("warn", "Canceling pending bot connection...");
+        try {
+          this.pendingBot.end();
+        } catch {
+          if (this.connectTimeout) clearTimeout(this.connectTimeout);
+          this.connectTimeout = null;
+          this.pendingBot = null;
+          this.connecting = false;
+        }
+        this.stopAllTasks();
+        this.currentTask = "idle";
+        this.broadcastStatus();
+        return;
+      }
+      throw new Error("Bot is not connected");
+    }
+
     this.stopAllTasks();
     this.bot.end();
     this.cleanup();
