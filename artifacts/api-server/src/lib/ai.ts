@@ -137,6 +137,19 @@ class AIService {
   }
 
   async plan(objective: string, options: AIChatOptions = {}): Promise<AIPlanResult> {
+    if ((options.provider ?? this.getDefaultProvider()) === "local") {
+      return {
+        provider: "local",
+        model: "local-rule-engine",
+        plan: [
+          "Check health, food, inventory, and nearby hazards.",
+          "Choose the highest-priority task that can be completed safely.",
+          "Stop and reassess if health drops, navigation stalls, or the environment becomes unsafe.",
+        ],
+        usedFallback: false,
+      };
+    }
+
     const result = await this.chat(
       `Create a short, actionable plan for the following objective. Return only a JSON object with a "plan" array of 3-6 steps. Objective: ${objective}`,
       { ...options, temperature: 0.2, maxTokens: 350 }
@@ -161,6 +174,16 @@ class AIService {
   }
 
   async decide(context: Record<string, unknown>, options: AIChatOptions = {}): Promise<AIDecisionResult> {
+    if ((options.provider ?? this.getDefaultProvider()) === "local") {
+      const decision = this.localDecision(context);
+      return {
+        provider: "local",
+        model: "local-rule-engine",
+        ...decision,
+        usedFallback: false,
+      };
+    }
+
     const instruction = `Based on the bot context, choose the single best next action. Output a JSON object with fields: action, rationale, confidence.`;
     const result = await this.chat(instruction, {
       ...options,
@@ -299,25 +322,75 @@ class AIService {
     if (provider === "openai") {
       const apiKey = process.env["OPENAI_API_KEY"]?.trim();
       const configuredBaseUrl = process.env["OPENAI_BASE_URL"]?.trim();
+      const apiMode = (process.env["OPENAI_API_MODE"] ?? (configuredBaseUrl ? "chat-completions" : "responses")).toLowerCase();
       if (!apiKey && !configuredBaseUrl) throw new Error("OPENAI_API_KEY not set");
+      if (apiMode !== "responses" && apiMode !== "chat-completions") {
+        throw new Error("OPENAI_API_MODE must be responses or chat-completions");
+      }
+
       const baseUrl = (configuredBaseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
       const headers: Record<string, string> = { ...commonHeaders };
       if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
 
+      if (apiMode === "responses") {
+        const reasoningEffort = process.env["OPENAI_REASONING_EFFORT"]?.trim()
+          || (model === "gpt-6-luna" ? "none" : undefined);
+        const requestBody: Record<string, unknown> = {
+          model,
+          input: prompt,
+          max_output_tokens: options.maxTokens,
+        };
+        if (reasoningEffort) requestBody["reasoning"] = { effort: reasoningEffort };
+
+        const response = await this.fetchWithTimeout(`${baseUrl}/responses`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(requestBody),
+        });
+        if (!response.ok) throw new Error(`OpenAI Responses request failed: ${response.status}`);
+
+        const json = (await response.json()) as {
+          output_text?: unknown;
+          output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+        };
+        if (typeof json.output_text === "string" && json.output_text.trim()) {
+          return json.output_text.trim();
+        }
+
+        // The API can return more than one output item; aggregate all text
+        // rather than assuming the first content block always holds the answer.
+        const textOutput = Array.isArray(json.output)
+          ? json.output.flatMap((item) =>
+              Array.isArray(item.content)
+                ? item.content
+                    .filter((part) => part.type === "output_text" && typeof part.text === "string")
+                    .map((part) => part.text ?? "")
+                : []
+            ).join("\\n").trim()
+          : "";
+        if (!textOutput) throw new Error("OpenAI Responses returned no text output");
+        return textOutput;
+      }
+
+      // Compatibility mode for OpenAI-compatible services that implement
+      // Chat Completions instead of the Responses API.
       const response = await this.fetchWithTimeout(`${baseUrl}/chat/completions`, {
         method: "POST",
         headers,
         body: JSON.stringify({
           model,
-          reasoning_effort: "none",
           temperature: options.temperature,
-          max_completion_tokens: options.maxTokens,
+          max_tokens: options.maxTokens,
           messages: [{ role: "user", content: prompt }],
         }),
       });
-      if (!response.ok) throw new Error(`OpenAI request failed: ${response.status}`);
+      if (!response.ok) throw new Error(`OpenAI-compatible chat request failed: ${response.status}`);
       const json = (await response.json()) as any;
-      return String(json?.choices?.[0]?.message?.content ?? "").trim();
+      const text = json?.choices?.[0]?.message?.content;
+      if (typeof text !== "string" || !text.trim()) {
+        throw new Error("Chat Completions returned no text output");
+      }
+      return text.trim();
     }
 
     if (provider === "gemini") {
@@ -338,7 +411,9 @@ class AIService {
       );
       if (!response.ok) throw new Error(`Gemini request failed: ${response.status}`);
       const json = (await response.json()) as any;
-      return String(json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
+      const text = String(json?.candidates?.[0]?.content?.parts?.[0]?.text ?? "").trim();
+      if (!text) throw new Error("Gemini returned no text output");
+      return text;
     }
 
     if (provider === "anthropic") {
@@ -360,7 +435,9 @@ class AIService {
       });
       if (!response.ok) throw new Error(`Anthropic request failed: ${response.status}`);
       const json = (await response.json()) as any;
-      return String(json?.content?.[0]?.text ?? "").trim();
+      const text = String(json?.content?.[0]?.text ?? "").trim();
+      if (!text) throw new Error("Anthropic returned no text output");
+      return text;
     }
 
     if (provider === "ollama") {
@@ -377,7 +454,9 @@ class AIService {
       });
       if (!response.ok) throw new Error(`Ollama request failed: ${response.status}`);
       const json = (await response.json()) as any;
-      return String(json?.response ?? "").trim();
+      const text = String(json?.response ?? "").trim();
+      if (!text) throw new Error("Ollama returned no text output");
+      return text;
     }
 
     throw new Error("No remote provider configured");
