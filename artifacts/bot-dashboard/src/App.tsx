@@ -5,14 +5,17 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { Home } from "@/pages/Home";
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { setAuthTokenGetter } from "@workspace/api-client-react";
+import { setAuthTokenGetter, setBaseUrl } from "@workspace/api-client-react";
 import {
   DASHBOARD_TOKEN_STORAGE_KEY,
   getStoredDashboardToken,
+  getApiBaseUrl,
+  apiUrl,
 } from "@/lib/dashboard-auth";
 
 // The API client reads the token only when a request is made. The token is
 // session-scoped and is never embedded into the frontend bundle.
+setBaseUrl(getApiBaseUrl() || null);
 setAuthTokenGetter(() => getStoredDashboardToken());
 
 const queryClient = new QueryClient();
@@ -44,7 +47,7 @@ function DashboardAccessGate({ children }: { children: ReactNode }) {
     }
 
     setToken(saved);
-    fetch("/api/auth/verify", {
+    fetch(apiUrl("/api/auth/verify"), {
       method: "POST",
       headers: { Authorization: `Bearer ${saved}` },
     })
@@ -89,7 +92,7 @@ function DashboardAccessGate({ children }: { children: ReactNode }) {
     setChecking(true);
     setError("");
     try {
-      const response = await fetch("/api/auth/verify", {
+      const response = await fetch(apiUrl("/api/auth/verify"), {
         method: "POST",
         headers: { Authorization: `Bearer ${candidate}` },
       });
