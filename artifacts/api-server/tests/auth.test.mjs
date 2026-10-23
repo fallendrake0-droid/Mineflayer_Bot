@@ -43,15 +43,17 @@ function makeResponse() {
   };
 }
 
-test("token validation fails closed when no token is configured", () => {
+test("token validation fails closed when no token or a weak token is configured", () => {
   delete process.env["DASHBOARD_TOKEN"];
   assert.equal(isValidDashboardToken("some-token"), false);
+  process.env["DASHBOARD_TOKEN"] = "short-token";
+  assert.equal(isValidDashboardToken("short-token"), false);
   assert.equal(isValidDashboardToken(undefined), false);
 });
 
 test("token validation accepts the exact configured token only", () => {
-  process.env["DASHBOARD_TOKEN"] = "test-secret";
-  assert.equal(isValidDashboardToken("test-secret"), true);
+  process.env["DASHBOARD_TOKEN"] = "ci-dashboard-token-not-for-production";
+  assert.equal(isValidDashboardToken("ci-dashboard-token-not-for-production"), true);
   assert.equal(isValidDashboardToken("wrong-secret"), false);
   assert.equal(isValidDashboardToken(" test-secret "), false);
 });
@@ -61,7 +63,7 @@ test("auth middleware returns 503 when not configured", () => {
   const response = makeResponse();
   let calledNext = false;
 
-  requireDashboardAuth(makeRequest("Bearer test-secret"), response, () => {
+  requireDashboardAuth(makeRequest("Bearer ci-dashboard-token-not-for-production"), response, () => {
     calledNext = true;
   });
 
@@ -71,7 +73,7 @@ test("auth middleware returns 503 when not configured", () => {
 });
 
 test("auth middleware rejects missing and incorrect bearer tokens", () => {
-  process.env["DASHBOARD_TOKEN"] = "test-secret";
+  process.env["DASHBOARD_TOKEN"] = "ci-dashboard-token-not-for-production";
 
   for (const authorization of [undefined, "", "Basic test-secret", "Bearer wrong"]) {
     const response = makeResponse();
@@ -88,11 +90,11 @@ test("auth middleware rejects missing and incorrect bearer tokens", () => {
 });
 
 test("auth middleware allows a valid bearer token", () => {
-  process.env["DASHBOARD_TOKEN"] = "test-secret";
+  process.env["DASHBOARD_TOKEN"] = "ci-dashboard-token-not-for-production";
   const response = makeResponse();
   let calledNext = false;
 
-  requireDashboardAuth(makeRequest("Bearer test-secret"), response, () => {
+  requireDashboardAuth(makeRequest("Bearer ci-dashboard-token-not-for-production"), response, () => {
     calledNext = true;
   });
 
