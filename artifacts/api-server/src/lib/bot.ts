@@ -186,7 +186,15 @@ class BotManager {
       }
 
       this.pendingBot = bot;
-      bot.loadPlugin(pathfinder);
+      try {
+        bot.loadPlugin(pathfinder);
+      } catch (err: unknown) {
+        this.pendingBot = null;
+        this.connecting = false;
+        try { bot.end(); } catch { /* client may already be closed */ }
+        reject(err instanceof Error ? err : new Error(String(err)));
+        return;
+      }
 
       let spawned = false;
       let settled = false;
@@ -305,7 +313,14 @@ class BotManager {
     this.broadcastStatus();
   }
 
+  private isTaskCurrent(taskId: number): boolean {
+    return this.bot !== null && this.taskGeneration === taskId;
+  }
+
   private stopAllTasks() {
+    // Invalidate any async task that is waiting for pathfinding/digging/placement.
+    // Each task checks this generation again after every awaited movement action.
+    this.taskGeneration += 1;
     if (this.followInterval) {
       clearInterval(this.followInterval);
       this.followInterval = null;
