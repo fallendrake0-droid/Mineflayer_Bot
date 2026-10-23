@@ -7,7 +7,7 @@ import type { NextFunction, Request, Response } from "express";
  */
 export function isValidDashboardToken(token: string | null | undefined): boolean {
   const expected = process.env["DASHBOARD_TOKEN"]?.trim();
-  if (!expected || !token) return false;
+  if (!expected || expected.length < 32 || !token) return false;
 
   const expectedDigest = createHash("sha256").update(expected, "utf8").digest();
   const suppliedDigest = createHash("sha256").update(token, "utf8").digest();
@@ -23,8 +23,11 @@ export function requireDashboardAuth(
   res: Response,
   next: NextFunction,
 ): void {
-  if (!process.env["DASHBOARD_TOKEN"]?.trim()) {
-    res.status(503).json({ error: "Dashboard access is not configured on the server." });
+  const configuredToken = process.env["DASHBOARD_TOKEN"]?.trim();
+  if (!configuredToken || configuredToken.length < 32) {
+    res.status(503).json({
+      error: "Dashboard access requires a unique DASHBOARD_TOKEN of at least 32 characters.",
+    });
     return;
   }
 
