@@ -1,3 +1,5 @@
+import { logger } from "./logger";
+
 export type AIProvider = "openai" | "gemini" | "anthropic" | "ollama" | "local";
 
 export interface AIChatOptions {
@@ -60,10 +62,26 @@ class AIService {
 
   getProviders(): AIProviderConfig[] {
     return [
-      { name: "openai", enabled: Boolean(process.env["OPENAI_API_KEY"]), defaultModel: "gpt-4o-mini" },
-      { name: "gemini", enabled: Boolean(process.env["GEMINI_API_KEY"]), defaultModel: "gemini-1.5-flash" },
-      { name: "anthropic", enabled: Boolean(process.env["ANTHROPIC_API_KEY"]), defaultModel: "claude-3-haiku-20240307" },
-      { name: "ollama", enabled: Boolean(process.env["OLLAMA_BASE_URL"] || process.env["OLLAMA_HOST"]), defaultModel: "llama3.1" },
+      {
+        name: "openai",
+        enabled: Boolean(process.env["OPENAI_API_KEY"] || process.env["OPENAI_BASE_URL"]),
+        defaultModel: this.getModelForProvider("openai"),
+      },
+      {
+        name: "gemini",
+        enabled: Boolean(process.env["GEMINI_API_KEY"]),
+        defaultModel: this.getModelForProvider("gemini"),
+      },
+      {
+        name: "anthropic",
+        enabled: Boolean(process.env["ANTHROPIC_API_KEY"]),
+        defaultModel: this.getModelForProvider("anthropic"),
+      },
+      {
+        name: "ollama",
+        enabled: Boolean(process.env["OLLAMA_BASE_URL"] || process.env["OLLAMA_HOST"]),
+        defaultModel: this.getModelForProvider("ollama"),
+      },
       { name: "local", enabled: true, defaultModel: "local-rule-engine" },
     ];
   }
@@ -74,6 +92,17 @@ class AIService {
     const temperature = options.temperature ?? 0.4;
     const maxTokens = options.maxTokens ?? 300;
     const context = options.context ?? {};
+
+    // Local mode is intentional, not a failed remote request. It must work
+    // without credentials and without creating network activity.
+    if (provider === "local") {
+      return {
+        provider,
+        model: "local-rule-engine",
+        text: this.localFallback(prompt, context),
+        usedFallback: false,
+      };
+    }
 
     try {
       const response = await this.callRemoteProvider(provider, model, this.buildPrompt(prompt, context), {
@@ -87,7 +116,16 @@ class AIService {
         text: response,
         usedFallback: false,
       };
-    } catch {
+    } catch (error: unknown) {
+      // Never log raw provider errors: URLs and provider-specific messages can
+      // contain credentials. Keep enough metadata to diagnose the failure class.
+      logger.warn(
+        {
+          provider,
+          errorType: error instanceof Error ? error.name : "UnknownError",
+        },
+        "AI provider request failed; using local fallback",
+      );
       const fallback = this.localFallback(prompt, context);
       return {
         provider,
@@ -163,14 +201,42 @@ class AIService {
     });
   }
 
-  private getModelForProvider(provider: AIProvider) {
-    return {
-      openai: "gpt-4o-mini",
-      gemini: "gemini-1.5-flash",
-      anthropic: "claude-3-haiku-20240307",
+  private getModelForProvider(provider: AIProvider): string {
+    const defaults: Record<AIProvider, string> = {
+      openai: "gpt-6-luna",
+      gemini: "gemini-3.8-flash",
+      anthropic: "claude-haiku-4-5",
       ollama: "llama3.1",
       local: "local-rule-engine",
-    }[provider];
+    };
+
+    if (provider === "local") return defaults.local;
+
+    const providerEnvironmentName: Record<Exclude<AIProvider, "local">, string> = {
+      openai: "OPENAI_MODEL",
+      gemini: "GEMINI_MODEL",
+      anthropic: "ANTHROPIC_MODEL",
+      ollama: "OLLAMA_MODEL",
+    };
+    return process.env[providerEnvironmentName[provider]]?.trim()
+      || process.env["AI_MODEL"]?.trim()
+      || defaults[provider];
+  }
+
+  private getRequestTimeoutMs(): number {
+    const configured = Number(process.env["AI_TIMEOUT_MS"] ?? "15000");
+    // Prevent accidental infinite waits and reject non-numeric/unsafe values.
+    if (!Number.isSafeInteger(configured) || configured < 1000 || configured > 120000) {
+      return 15000;
+    }
+    return configured;
+  }
+
+  private fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+    return fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(this.getRequestTimeoutMs()),
+    });
   }
 
   private localFallback(prompt: string, context?: Record<string, unknown>) {
@@ -231,18 +297,21 @@ class AIService {
     };
 
     if (provider === "openai") {
-      const apiKey = process.env["OPENAI_API_KEY"];
-      if (!apiKey) throw new Error("OPENAI_API_KEY not set");
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      const apiKey = process.env["OPENAI_API_KEY"]?.trim();
+      const configuredBaseUrl = process.env["OPENAI_BASE_URL"]?.trim();
+      if (!apiKey && !configuredBaseUrl) throw new Error("OPENAI_API_KEY not set");
+      const baseUrl = (configuredBaseUrl || "https://api.openai.com/v1").replace(/\/+$/, "");
+      const headers: Record<string, string> = { ...commonHeaders };
+      if (apiKey) headers["Authorization"] = `Bearer ${apiKey}`;
+
+      const response = await this.fetchWithTimeout(`${baseUrl}/chat/completions`, {
         method: "POST",
-        headers: {
-          ...commonHeaders,
-          Authorization: `Bearer ${apiKey}`,
-        },
+        headers,
         body: JSON.stringify({
           model,
+          reasoning_effort: "none",
           temperature: options.temperature,
-          max_tokens: options.maxTokens,
+          max_completion_tokens: options.maxTokens,
           messages: [{ role: "user", content: prompt }],
         }),
       });
@@ -254,17 +323,16 @@ class AIService {
     if (provider === "gemini") {
       const apiKey = process.env["GEMINI_API_KEY"];
       if (!apiKey) throw new Error("GEMINI_API_KEY not set");
-      const response = await fetch(
+      const response = await this.fetchWithTimeout(
         `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
         {
           method: "POST",
           headers: commonHeaders,
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              temperature: options.temperature,
-              maxOutputTokens: options.maxTokens,
-            },
+            // Gemini 3.x deprecates legacy sampling parameters; retain the
+            // output cap but let the selected model use its documented defaults.
+            generationConfig: { maxOutputTokens: options.maxTokens },
           }),
         }
       );
@@ -276,7 +344,7 @@ class AIService {
     if (provider === "anthropic") {
       const apiKey = process.env["ANTHROPIC_API_KEY"];
       if (!apiKey) throw new Error("ANTHROPIC_API_KEY not set");
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
+      const response = await this.fetchWithTimeout("https://api.anthropic.com/v1/messages", {
         method: "POST",
         headers: {
           ...commonHeaders,
@@ -297,7 +365,7 @@ class AIService {
 
     if (provider === "ollama") {
       const baseUrl = process.env["OLLAMA_BASE_URL"] ?? process.env["OLLAMA_HOST"] ?? "http://localhost:11434";
-      const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/generate`, {
+      const response = await this.fetchWithTimeout(`${baseUrl.replace(/\/$/, "")}/api/generate`, {
         method: "POST",
         headers: commonHeaders,
         body: JSON.stringify({
