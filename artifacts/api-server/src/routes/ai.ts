@@ -120,8 +120,8 @@ router.post("/ai/chat", aiRateLimit, async (req, res) => {
     return;
   }
   const parsed = parseOptions(body);
-  if (parsed.error) {
-    res.status(400).json({ error: parsed.error });
+  if (parsed.error || !parsed.options) {
+    res.status(400).json({ error: parsed.error ?? "Invalid AI options" });
     return;
   }
 
@@ -141,8 +141,8 @@ router.post("/ai/plan", aiRateLimit, async (req, res) => {
     return;
   }
   const parsed = parseOptions(body);
-  if (parsed.error) {
-    res.status(400).json({ error: parsed.error });
+  if (parsed.error || !parsed.options) {
+    res.status(400).json({ error: parsed.error ?? "Invalid AI options" });
     return;
   }
 
@@ -157,8 +157,8 @@ router.post("/ai/decide", aiRateLimit, async (req, res) => {
   const body = readBody(req, res);
   if (!body) return;
   const parsed = parseOptions(body);
-  if (parsed.error) {
-    res.status(400).json({ error: parsed.error });
+  if (parsed.error || !parsed.options) {
+    res.status(400).json({ error: parsed.error ?? "Invalid AI options" });
     return;
   }
   if (!parsed.options.context) {
@@ -177,8 +177,8 @@ router.post("/ai/summarize", aiRateLimit, async (req, res) => {
   const body = readBody(req, res);
   if (!body) return;
   const parsed = parseOptions(body);
-  if (parsed.error) {
-    res.status(400).json({ error: parsed.error });
+  if (parsed.error || !parsed.options) {
+    res.status(400).json({ error: parsed.error ?? "Invalid AI options" });
     return;
   }
   if (!parsed.options.context) {
