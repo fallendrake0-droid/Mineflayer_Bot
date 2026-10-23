@@ -1,6 +1,9 @@
 import React, { useEffect, useState, useRef } from "react";
 import type { BotStatus, LogEntry } from "@workspace/api-client-react";
-import { getStoredDashboardToken } from "@/lib/dashboard-auth";
+import {
+  getStoredDashboardToken,
+  getDashboardWebSocketUrl,
+} from "@/lib/dashboard-auth";
 
 export function useBotWebsocket() {
   const [status, setStatus] = useState<BotStatus | null>(null);
@@ -23,8 +26,7 @@ export function useBotWebsocket() {
       }
 
       let authenticated = false;
-      const wsUrl = window.location.origin.replace(/^http/, "ws") + "/ws";
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(getDashboardWebSocketUrl());
       wsRef.current = ws;
 
       ws.onopen = () => {
