@@ -7,7 +7,7 @@ A Mineflayer bot and web dashboard in a pnpm workspace.
 Before deploying the API or dashboard on a network, configure a unique dashboard token. The bot-control API and telemetry WebSocket fail closed when `DASHBOARD_TOKEN` is missing.
 
 1. Copy `.env.example` into your private deployment environment; do not commit a real `.env` file.
-2. Generate a strong secret, for example with `openssl rand -hex 32`, and set it as `DASHBOARD_TOKEN`.
+2. Generate a strong secret of at least 32 characters, for example with `openssl rand -hex 32`, and set it as `DASHBOARD_TOKEN`. The server refuses missing or shorter tokens.
 3. Open the dashboard and enter the same token in its access prompt. The dashboard keeps it in session storage and sends it as a bearer token for API requests.
 4. Use HTTPS for remote access. Do not expose a live bot on the public internet without a strong token and suitable network controls.
 5. If the dashboard uses a different origin from the API, set `DASHBOARD_ORIGINS` to the comma-separated exact allowed origins. Same-origin is the default.
